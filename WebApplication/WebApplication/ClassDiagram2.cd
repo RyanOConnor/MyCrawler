@@ -1,0 +1,74 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<ClassDiagram MajorVersion="1" MinorVersion="1">
+  <Class Name="WebApplication.Authorize">
+    <Position X="5" Y="4" Width="1.75" />
+    <TypeIdentifier>
+      <HashCode>CAAAAAAAAAAAAAAABBAAAAAAAAAAAAAAAAAAAAAAAAA=</HashCode>
+      <FileName>Authorize.cs</FileName>
+    </TypeIdentifier>
+  </Class>
+  <Class Name="WebApplication.CrawlerManager">
+    <Position X="0.5" Y="3.5" Width="1.75" />
+    <TypeIdentifier>
+      <HashCode>AAAAAAAACAAAAAgAAAAAAAEACAAACAAAAAAAIAAAQBA=</HashCode>
+      <FileName>CrawlerManager.cs</FileName>
+    </TypeIdentifier>
+  </Class>
+  <Class Name="WebApplication.DataManager">
+    <Position X="0.5" Y="0.5" Width="2" />
+    <TypeIdentifier>
+      <HashCode>AAAUAAAAACAAAAAAAAAAAAAAAAABGAAAAAAAAAAAAAQ=</HashCode>
+      <FileName>DataManager.cs</FileName>
+    </TypeIdentifier>
+  </Class>
+  <Class Name="WebApplication.HTMLPage">
+    <Position X="2.75" Y="0.5" Width="1.5" />
+    <TypeIdentifier>
+      <HashCode>AIAAAACAAAAAAAAAAAAAAAAAAAAIAAAAAAAAAAAAAgA=</HashCode>
+      <FileName>DataManager.cs</FileName>
+    </TypeIdentifier>
+  </Class>
+  <Class Name="WebApplication.Server">
+    <Position X="2.5" Y="3.75" Width="1.75" />
+    <NestedTypes>
+      <Enum Name="WebApplication.Server.requestType" Collapsed="true">
+        <TypeIdentifier>
+          <NewMemberFileName>Server.cs</NewMemberFileName>
+        </TypeIdentifier>
+      </Enum>
+    </NestedTypes>
+    <TypeIdentifier>
+      <HashCode>AAAAAEIAAAAAAAAAAAAAAAACAAAgAAAAAAAAAAAAAAA=</HashCode>
+      <FileName>Server.cs</FileName>
+    </TypeIdentifier>
+  </Class>
+  <Class Name="WebApplication.UserManager">
+    <Position X="4.5" Y="0.5" Width="1.75" />
+    <NestedTypes>
+      <Enum Name="WebApplication.UserManager.queueStatus" Collapsed="true">
+        <TypeIdentifier>
+          <NewMemberFileName>UserManager.cs</NewMemberFileName>
+        </TypeIdentifier>
+      </Enum>
+    </NestedTypes>
+    <TypeIdentifier>
+      <HashCode>AAAAAAABAAAAAQAQAAAAAAAAAAAAgAAAAAEBCAEAAAQ=</HashCode>
+      <FileName>UserManager.cs</FileName>
+    </TypeIdentifier>
+  </Class>
+  <Class Name="WebApplication.User">
+    <Position X="6.5" Y="0.5" Width="1.5" />
+    <NestedTypes>
+      <Struct Name="WebApplication.User.url" Collapsed="true">
+        <TypeIdentifier>
+          <NewMemberFileName>UserManager.cs</NewMemberFileName>
+        </TypeIdentifier>
+      </Struct>
+    </NestedTypes>
+    <TypeIdentifier>
+      <HashCode>AAAAAAAAACAAAAAAAAAAAAAAAAAIAAAAAAAAAAEAgAA=</HashCode>
+      <FileName>UserManager.cs</FileName>
+    </TypeIdentifier>
+  </Class>
+  <Font Name="Segoe UI" Size="9" />
+</ClassDiagram>
