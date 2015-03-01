@@ -50,6 +50,21 @@ namespace WebCrawler
             sendThread.Start();
         }
 
+        public static HTMLPage sendQueueTake()
+        {
+            return sendQueue.Take();
+        }
+
+        public static bool isSendQueueEmpty()
+        {
+            return sendQueue.Count == 0;
+        }
+
+        public static bool isWorkQueueEmpty()
+        {
+            return (documentQueue.Count == 0) && (waitQueue.Count == 0);
+        }
+
         public static void sendResults()
         {
             // Send application the crawled data

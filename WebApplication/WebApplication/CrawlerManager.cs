@@ -14,59 +14,81 @@ using System.Diagnostics;
 
 namespace WebApplication
 {
-    static class CrawlerManager
+    public static class CrawlerManager
     {
         private static BlockingCollection<HTMLRecord> sendQueue { get; set; }
+        private static BlockingCollection<HTMLRecord> workQueue { get; set; }
         private static List<CrawlerNode> workerNodes { get; set; }
-        private static TcpListener listener { get; set; }
+        private static Socket crawlerSocket { get; set; }
+        private static NetworkStream stream { get; set; }
 
         static CrawlerManager()
         {
             sendQueue = new BlockingCollection<HTMLRecord>();
+            workQueue = new BlockingCollection<HTMLRecord>();
             workerNodes = new List<CrawlerNode>();
         }
 
-        public static void startCrawlerServer()
+        private static void receiveCallBack(IAsyncResult result)
         {
-            IPAddress ip = IPAddress.Parse("127.0.0.1");
-            IPEndPoint ipLocal = new IPEndPoint(ip, 8888);
-            listener = new TcpListener(ipLocal);
-            listener.Start();
-            waitForCrawler();
-        }
+            Socket socket = (Socket)result.AsyncState;
+            int received = socket.EndReceive(result);
+            byte[] dataBuffer = new byte[received];
+            //Array.Copy(buffer, dataBuffer, received);
 
-        public static void waitForCrawler()
-        {
-            object obj = new object();
-            listener.BeginAcceptTcpClient(new AsyncCallback(onCrawlerConnect), obj);
-        }
+            string message = Encoding.ASCII.GetString(dataBuffer);
+            Console.WriteLine("Message received: " + message);
 
-        private static void onCrawlerConnect(IAsyncResult sync)
-        {
-            Console.WriteLine("Crawler connected...");
+            string response = string.Empty;
 
-            try
+            if(message == "next")
             {
-                TcpClient client = default(TcpClient);
-                client = listener.EndAcceptTcpClient(sync);
-
-                CrawlerNode node = new CrawlerNode(client);
-                workerNodes.Add(node);
-                node.startClient();
+                response = sendWorkToCrawler();
             }
-            catch(Exception ex)
+            else if(message != string.Empty)
             {
-                throw ex;
+                relayCrawlerResults(deserializeJSON(message));
             }
 
-            //waitForCrawler(); 
+            byte[] data = Encoding.ASCII.GetBytes(response);
+            socket.BeginSend(data, 0, data.Length, SocketFlags.None, new AsyncCallback(sendCallBack), socket);
+            Console.WriteLine("Message sent: " + response);
+            //crawlerSocket.BeginAccept(new AsyncCallback(crawlerCallBack), null);
         }
 
-        public static void distributeWorkAmongstCrawlers(HTMLRecord page)
+        private static void sendCallBack(IAsyncResult result)
+        {
+            Socket socket = (Socket)result.AsyncState;
+            socket.EndSend(result);
+        }
+
+        private static string sendWorkToCrawler()
+        {
+            DataContractJsonSerializer ser = new DataContractJsonSerializer(typeof(HTMLRecord));
+            MemoryStream stream = new MemoryStream();
+            HTMLRecord record = workQueue.Take();       // Block here and wait for work
+
+            ser.WriteObject(stream, record);
+            return Encoding.ASCII.GetString(stream.ToArray());
+        }
+
+        private static HTMLRecord deserializeJSON(string message)
+        {
+            DataContractJsonSerializer ser = new DataContractJsonSerializer(typeof(HTMLRecord));
+            MemoryStream stream = new MemoryStream(Encoding.Unicode.GetBytes(message));
+            return ser.ReadObject(stream) as HTMLRecord;
+        }
+
+        public static void distributeWorkAmongstCrawlers(HTMLRecord record)
+        {
+            workQueue.Add(record);
+        }
+
+        /*public static void distributeWorkAmongstCrawlers(HTMLRecord page)
         {
             CrawlerNode node = workerNodes.OrderByDescending(x => x.workQueue.Count).First();
             node.addWork(page);
-        }
+        }*/
 
         public static void relayCrawlerResults(HTMLRecord page)
         {
@@ -84,24 +106,32 @@ namespace WebApplication
         }
     }
 
-    class CrawlerNode : HandleRequest
+    class CrawlerNode : SocketHandle
     {
         public string crawlerStatus { get; set; }
-        public IPEndPoint crawlerIP { get; set; }
-        public BlockingCollection<HTMLRecord> workQueue { get; set; }
+        public TcpClient client { get; set; }
+        public NetworkStream stream { get; set; }
+        //public BlockingCollection<HTMLRecord> workQueue { get; set; }
 
-        public CrawlerNode(TcpClient crawlerSocket)
-            : base(crawlerSocket)
+        public CrawlerNode(Socket crawlerSocket)
+            :base(crawlerSocket, ConsoleColor.Black, 0)
         {
-            workQueue = new BlockingCollection<HTMLRecord>();
+            stream = new NetworkStream(crawlerSocket);
+            //client = new TcpClient(crawlerSocket);
+            //workQueue = new BlockingCollection<HTMLRecord>();
+        }
+        
+        public void startNode()
+        {
+            stream = client.GetStream();
         }
 
-        public void addWork(HTMLRecord record)
+        /*public void addWork(HTMLRecord record)
         {
             workQueue.Add(record);
-        }
+        }*/
 
-        public override string handleMessage(string message)
+        /*public string handleMessage(string message)
         {
             if(message == "next")
             {
@@ -112,23 +142,9 @@ namespace WebApplication
                 CrawlerManager.relayCrawlerResults(deserializeJSON(message));
                 return "sentToDatabase";
             }
-        }
+        }*/
 
-        private string sendWorkToCrawler()
-        {
-            DataContractJsonSerializer ser = new DataContractJsonSerializer(typeof(HTMLRecord));
-            MemoryStream stream = new MemoryStream();
-            HTMLRecord record = workQueue.Take();       // Block here and wait for work
 
-            ser.WriteObject(stream, record);
-            return Encoding.ASCII.GetString(stream.ToArray());
         }
-
-        private HTMLRecord deserializeJSON(string message)
-        {
-            DataContractJsonSerializer ser = new DataContractJsonSerializer(typeof(HTMLRecord));
-            MemoryStream stream = new MemoryStream(Encoding.Unicode.GetBytes(message));
-            return ser.ReadObject(stream) as HTMLRecord;
-        }
-    }
 }
+

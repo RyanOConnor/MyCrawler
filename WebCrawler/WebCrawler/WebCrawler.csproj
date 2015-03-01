@@ -52,6 +52,8 @@
     <Compile Include="Program.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="Server.cs" />
+    <Compile Include="Server2.cs" />
+    <Compile Include="SocketServer.cs" />
     <Compile Include="WebCrawler.cs" />
     <Compile Include="HTMLPage.cs" />
   </ItemGroup>

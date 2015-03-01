@@ -11,7 +11,19 @@ namespace WebApplication
     {
         static void Main(string[] args)
         {
-            HTMLRecord page1 = new HTMLRecord("managerpage1111",
+            /*SocketServer server = new SocketServer();
+            server.startServer();
+            Console.ReadLine();*/
+
+            SocketServer.startListener();
+            //Thread thread = new Thread(new ThreadStart(SocketServer.startListener));
+            //thread.Start();
+            //Thread.Sleep(7000);
+            //SocketServer.startClient();
+            //Console.ReadLine();
+
+
+            /*HTMLRecord page1 = new HTMLRecord("managerpage1111",
                                         "http://reddit.com/r/cscareerquestions",
                                         DateTime.Now,
                                         new List<string>() { "asdfasdf234234", " 234324234" });
@@ -114,8 +126,8 @@ namespace WebApplication
 
             CrawlerManager.startCrawlerServer();
 
-            Console.WriteLine("Hit enter to load work queue...");
-            Console.ReadLine();
+            //Console.WriteLine("Hit enter to load work queue...");
+            //Console.ReadLine();
 
             CrawlerManager.distributeWorkAmongstCrawlers(page1);
             CrawlerManager.distributeWorkAmongstCrawlers(page2);
@@ -144,7 +156,7 @@ namespace WebApplication
             CrawlerManager.distributeWorkAmongstCrawlers(page25);
 
             Console.WriteLine("Distributed work to crawlers....");
-            Console.ReadLine();
+            Console.ReadLine();*/
         }
     }
 }

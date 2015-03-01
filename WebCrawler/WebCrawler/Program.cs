@@ -13,6 +13,20 @@ namespace WebCrawler
     {
         static void Main(string[] args)
         {
+
+            //Thread thread = new Thread(new ThreadStart(SocketServer.startListener));
+            //thread.Start();
+            //Thread.Sleep(7000);
+            SocketServer.startClient();
+            Console.ReadLine();
+
+
+            //Server3.LoopConnect();
+            //Server3.waitForData(null);
+            //Server3.SendLoop();
+            //Console.ReadLine();
+
+
             /*HTMLPage page1 = new HTMLPage("WAAAIIIIIITTTT",
                                         "http://gizmodo.com/",
                                         DateTime.Now,
@@ -32,7 +46,7 @@ namespace WebCrawler
             WebCrawler.waitEnqueue(page2);
             WebCrawler.waitEnqueue(page3);*/
 
-            WebCrawler.start();
+            /*WebCrawler.start();
             Console.WriteLine("Hit enter to connect to server...");
             Console.ReadLine();
 
@@ -41,7 +55,7 @@ namespace WebCrawler
             Console.WriteLine("Hit enter to initiate queue dump...");
             Console.ReadLine();
 
-            Server2.allowNextTransmission();
+            Server2.allowNextTransmission();*/
 
             //Server.start();
             //Server.allowNextTransmission();
