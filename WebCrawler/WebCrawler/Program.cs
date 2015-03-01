@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using System.Runtime.Serialization.Json;
 using System.IO;
 using System.Threading;
+using System.Net;
 
 namespace WebCrawler
 {
@@ -13,18 +14,11 @@ namespace WebCrawler
     {
         static void Main(string[] args)
         {
+            ServicePointManager.DefaultConnectionLimit = 100;
+            ServicePointManager.Expect100Continue = false;
 
-            //Thread thread = new Thread(new ThreadStart(SocketServer.startListener));
-            //thread.Start();
-            //Thread.Sleep(7000);
             SocketServer.startClient();
-            Console.ReadLine();
-
-
-            //Server3.LoopConnect();
-            //Server3.waitForData(null);
-            //Server3.SendLoop();
-            //Console.ReadLine();
+            WebCrawler.start();
 
 
             /*HTMLPage page1 = new HTMLPage("WAAAIIIIIITTTT",

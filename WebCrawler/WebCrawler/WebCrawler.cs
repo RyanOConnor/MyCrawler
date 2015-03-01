@@ -20,22 +20,19 @@ namespace WebCrawler
         public static CrawlerStatus status { get; private set; }
         private static BlockingCollection<HTMLPage> documentQueue { get; set; }
         private static BlockingCollection<HTMLPage> waitQueue { get; set; }
-        private static BlockingCollection<HTMLPage> sendQueue { get; set; }
-        public static int cores;
+        public static int cores = Environment.ProcessorCount;
 
         static WebCrawler()
         {
             status = CrawlerStatus.ok;
-            cores = Environment.ProcessorCount;
             documentQueue = new BlockingCollection<HTMLPage>();
             waitQueue = new BlockingCollection<HTMLPage>();
-            sendQueue = new BlockingCollection<HTMLPage>();
         }
 
         public static void start()
         {
             // Start crawler to accept incoming crawl requests from application
-            Thread mainThread = new Thread(new ThreadStart(crawl));
+            Thread mainThread = new Thread(new ThreadStart(loadPages));
             mainThread.Start();
         }
 
@@ -43,37 +40,6 @@ namespace WebCrawler
         {
             // handles all threads, loadPages and others included
 
-            // REFACTOR: JUST USED FOR TESTING
-            Thread loadThread = new Thread(new ThreadStart(loadPages));
-            Thread sendThread = new Thread(new ThreadStart(sendResults));
-            loadThread.Start();
-            sendThread.Start();
-        }
-
-        public static HTMLPage sendQueueTake()
-        {
-            return sendQueue.Take();
-        }
-
-        public static bool isSendQueueEmpty()
-        {
-            return sendQueue.Count == 0;
-        }
-
-        public static bool isWorkQueueEmpty()
-        {
-            return (documentQueue.Count == 0) && (waitQueue.Count == 0);
-        }
-
-        public static void sendResults()
-        {
-            // Send application the crawled data
-            while(true)
-            {
-                HTMLPage page = sendQueue.Take();
-                Server2.disassembleOutgoingObject(page);
-                Console.WriteLine("Sent {0}...", page.url);
-            }
         }
 
         public static void sendErrorMessage(CrawlerStatus errorMsg)
@@ -83,13 +49,11 @@ namespace WebCrawler
 
         public static void enqueue(HTMLPage webPage)
         {
-            // Add HTMLPage to end of documentQueue
             Console.WriteLine("enqueueing [{0}]...", webPage.domainURL.AbsoluteUri);
-            //documentQueue.Enqueue(webpage);
             documentQueue.Add(webPage);
         }
 
-        public static void waitEnqueue(HTMLPage webPage)
+        public static void enqueueWait(HTMLPage webPage)
         {
             waitQueue.Add(webPage);
         }
@@ -127,10 +91,6 @@ namespace WebCrawler
                 waitQueue.Add(page);
                 Console.WriteLine("\n[{0}] has been wait queued...", page.domainURL.AbsoluteUri);
             }
-            else if(code == HttpStatusCode.OK) // REFACTOR: JUST USED FOR TESTING... remove elseif
-            {
-                sendQueue.Add(page);
-            }
         }
 
         public static void loadPageFromDocumentQueue(object stateInfo)
@@ -142,10 +102,6 @@ namespace WebCrawler
                 page.waitTime = 10000;      // set time to amount determined from status code, or arbitrary random
                 waitQueue.Add(page);
                 Console.WriteLine("\n[{0}] has been wait queued...", page.domainURL.AbsoluteUri);
-            }
-            else if(code == HttpStatusCode.OK) // REFACTOR: JUST USED FOR TESTING... remove elseif
-            {
-                sendQueue.Add(page);
             }
         }
     }
