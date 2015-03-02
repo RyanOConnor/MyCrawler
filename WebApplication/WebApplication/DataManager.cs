@@ -11,7 +11,7 @@ namespace WebApplication
 {
     public static class DataManager
     {
-        public static Queue<HTMLRecord> dataWriteQueue { get; private set; }
+        private static Queue<HTMLRecord> writeQueue { get; private set; }
 
         public static void createEntry(ObjectId urlid, string url)
         {
@@ -30,25 +30,25 @@ namespace WebApplication
             mockDatabase.Add(page);
         }
 
-        /*public HTMLPage findUrlById(ObjectId id)
+        public HTMLRecord findUrlById(ObjectId id)
         {
-            return HTMLPage;
+            return new HTMLRecord("", "", DateTime.Now, new List<string>());
         }
 
-        public HTMLPage findUrlByUrl(string url)
+        public HTMLRecord findUrlByUrl(string url)
         {
-            return HTMLPage;
+            return new HTMLRecord("", "", DateTime.Now, new List<string>());
         }
 
-        public List<HTMLPage> findMultipleByDateTime(List<DateTime> timeStamps)
+        public List<HTMLRecord> findMultipleByDateTime(List<DateTime> timeStamps)
         {
-            return List<HTMLPage>();
+            return new List<HTMLRecord>();
         }
 
-        public HTMLPage findSingleByDateTime(DateTime timeStamp)
+        public HTMLRecord findSingleByDateTime(DateTime timeStamp)
         {
-            return HTMLPage;
-        }*/
+            return new HTMLRecord("", "", DateTime.Now, new List<string>());
+        }
 
     }
     [DataContract]

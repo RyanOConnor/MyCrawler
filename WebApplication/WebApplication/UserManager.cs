@@ -18,22 +18,23 @@ namespace WebApplication
             // query database, hash password, create new User, save to collection
         }
 
-        /* public static User findUserByID( ObjectId userid)
+        public static User findUserByID( ObjectId userid)
         {
             // query db, return user object
-            return User;
+            return new User(new ObjectId(), "", "", new Dictionary<ObjectId,User.url>());
         }
 
          public static User findUserByUserName(string userName)
         {
             // query db, return user object
-            return User;
+            return new User(new ObjectId(), "", "", new Dictionary<ObjectId,User.url>());
         }
 
          public static string retrieveUserHash(ObjectId userid)
         {
             // query db for userid, return their hash value
-        }*/
+            return string.Empty;
+        }
 
         public static void addLinkToUser(ObjectId userid, string userName, string url, string[] htmlTags, string[] keywords)
         {
