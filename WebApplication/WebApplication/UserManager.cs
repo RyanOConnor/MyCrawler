@@ -77,9 +77,9 @@ namespace WebApplication
 
         public struct url
         {
-            public string urlValue { get;  set; }
-            public string[] htmlTags { get;  set; }
-            public string[] keywords { get;  set; }
+            public string urlValue { get; set; }
+            public string[] htmlTags { get; set; }
+            public string[] keywords { get; set; }
         }
 
         public User(ObjectId userid, string userName, string passwordHash, Dictionary<ObjectId, url> links)

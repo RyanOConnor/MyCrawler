@@ -17,132 +17,108 @@ namespace WebApplication
             HTMLRecord page1 = new HTMLRecord("managerpage1111",
                                         "http://reddit.com/r/cscareerquestions",
                                         DateTime.Now,
-                                        new List<string>() { "asdfasdf234234", " 234324234" });
+                                        new List<string>() { "a", ".title", "href" },
+                                        new List<string>() { "java", "c#" });
             HTMLRecord page2 = new HTMLRecord("managerpage2222",
                                         "http://www.wired.com/",
                                         DateTime.Now,
-                                        new List<string>() { "asdfasdf234234", " 234324234" });
+                                        new List<string>() { "a", ".clearfix", "href" },
+                                        new List<string>() { "tesla", "facebook", "snapchat", "virus" });
             HTMLRecord page3 = new HTMLRecord("managerpage3333",
                                         "http://www.cnn.com/tech",
                                         DateTime.Now,
-                                        new List<string>() { "asdfasdf234234", " 234324234" });
+                                        new List<string>() { "h3", ".cd__headline", "a", "href" },
+                                        new List<string>() { "tesla", "facebook", "snapchat", "virus" });
             HTMLRecord page4 = new HTMLRecord("managerpage3333",
                                         "https://news.ycombinator.com/",
                                         DateTime.Now,
-                                        new List<string>() { "asdfasdf234234", " 234324234" });
-            HTMLRecord page5 = new HTMLRecord("managerpage3333",
-                                        "http://facebook.com/",
-                                        DateTime.Now,
-                                        new List<string>() { "asdfasdf234234", " 234324234" });
-            HTMLRecord page6 = new HTMLRecord("managerpage3333",
-                                        "http://twitter.com/",
-                                        DateTime.Now,
-                                        new List<string>() { "asdfasdf234234", " 234324234" });
-            HTMLRecord page7 = new HTMLRecord("managerpage3333",
-                                        "http://google.com/",
-                                        DateTime.Now,
+                                        new List<string>() { "td", ".title", "a", "href" },
                                         new List<string>() { "asdfasdf234234", " 234324234" });
             HTMLRecord page8 = new HTMLRecord("managerpage3333",
                                         "http://youtube.com/",
                                         DateTime.Now,
+                                        new List<string>() { "a", ".yt-uix-sessionlink", "href" },
                                         new List<string>() { "asdfasdf234234", " 234324234" });
             HTMLRecord page9 = new HTMLRecord("managerpage3333",
-                                        "http://wordpress.org/",
+                                        "http://www.bbcamerica.com/",
                                         DateTime.Now,
-                                        new List<string>() { "asdfasdf234234", " 234324234" });
-            HTMLRecord page10 = new HTMLRecord("managerpage3333",
-                                        "http://adobe.com/",
-                                        DateTime.Now,
-                                        new List<string>() { "asdfasdf234234", " 234324234" });
-            HTMLRecord page11 = new HTMLRecord("managerpage3333",
-                                        "http://blogspot.com/",
-                                        DateTime.Now,
+                                        new List<string>() { "h3", ".entry-title", "a", "href" },
                                         new List<string>() { "asdfasdf234234", " 234324234" });
             HTMLRecord page12 = new HTMLRecord("managerpage3333",
-                                        "http://wikipedia.org/",
+                                        "http://meta.wikimedia.org/wiki/List_of_Wikipedias",
                                         DateTime.Now,
-                                        new List<string>() { "asdfasdf234234", " 234324234" });
-            HTMLRecord page13 = new HTMLRecord("managerpage1111",
-                                        "http://linkedin.com/",
-                                        DateTime.Now,
+                                        new List<string>() { "a", ".extiw", "href" },
                                         new List<string>() { "asdfasdf234234", " 234324234" });
             HTMLRecord page14 = new HTMLRecord("managerpage2222",
-                                        "http://wordpress.com/",
+                                        "https://en.forums.wordpress.com/forum/themes",
                                         DateTime.Now,
+                                        new List<string>() { "td", ".topictitle", "a", "href" },
                                         new List<string>() { "asdfasdf234234", " 234324234" });
             HTMLRecord page15 = new HTMLRecord("managerpage3333",
                                         "http://yahoo.com/",
                                         DateTime.Now,
+                                        new List<string>() { "h3", ".fw-b", "a", "href" },
                                         new List<string>() { "asdfasdf234234", " 234324234" });
             HTMLRecord page16 = new HTMLRecord("managerpage3333",
-                                        "http://amazon.com/",
+                                        "http://www.amazon.com/s/ref=nb_sb_noss_1?url=search-alias%3Daps&field-keywords=stonewall+aioli",
                                         DateTime.Now,
+                                        new List<string>() { "a", ".a-link-normal", "href" },
                                         new List<string>() { "asdfasdf234234", " 234324234" });
             HTMLRecord page17 = new HTMLRecord("managerpage3333",
-                                        "http://flickr.com/",
+                                        "https://www.flickr.com/20under20/",
                                         DateTime.Now,
+                                        new List<string>() { "a", ".artist-name", "href" },
                                         new List<string>() { "asdfasdf234234", " 234324234" });
             HTMLRecord page18 = new HTMLRecord("managerpage3333",
                                         "http://pinterest.com/",
                                         DateTime.Now,
+                                        new List<string>() { "a", ".pinImageWrapper", "href" },
                                         new List<string>() { "asdfasdf234234", " 234324234" });
             HTMLRecord page19 = new HTMLRecord("managerpage3333",
-                                        "http://tumblr.com/",
+                                        "http://alexbeardstudio.tumblr.com/post/112441953420/close-up-on-the-new-fish-painting-the-gestural",
                                         DateTime.Now,
-                                        new List<string>() { "asdfasdf234234", " 234324234" });
-            //HTMLRecord page20 = new HTMLRecord("managerpage3333",
-            //                            "http://w3.org/",
-            //                            DateTime.Now,
-            //                            new List<string>() { "asdfasdf234234", " 234324234" });
+                                        new List<string>() { "a", ".avatar_frame", "href" },
+                                        new List<string>() { "asdfasdf234234", " 234324234" });;
             HTMLRecord page21 = new HTMLRecord("managerpage3333",
-                                        "http://apple.com/",
+                                        "https://discussions.apple.com/community/apple_pay/using_apple_pay_in_stores",
                                         DateTime.Now,
+                                        new List<string>() { "td", ".jive-table-cell-title", "a", "href" },
                                         new List<string>() { "asdfasdf234234", " 234324234" });
             HTMLRecord page22 = new HTMLRecord("managerpage3333",
                                         "http://myspace.com/",
                                         DateTime.Now,
+                                        new List<string>() { "a", ".link", "href" },
                                         new List<string>() { "asdfasdf234234", " 234324234" });
             HTMLRecord page23 = new HTMLRecord("managerpage3333",
                                         "http://vimeo.com/",
                                         DateTime.Now,
-                                        new List<string>() { "asdfasdf234234", " 234324234" });
-            HTMLRecord page24 = new HTMLRecord("managerpage3333",
-                                        "http://microsoft.com/",
-                                        DateTime.Now,
+                                        new List<string>() { "a", ".responsive_border_lg", "href" },
                                         new List<string>() { "asdfasdf234234", " 234324234" });
             HTMLRecord page25 = new HTMLRecord("managerpage3333",
                                         "http://digg.com/",
                                         DateTime.Now,
+                                        new List<string>() { "a", ".story-title-link", "href" },
                                         new List<string>() { "asdfasdf234234", " 234324234" });
 
             //Console.WriteLine("Hit enter to load work queue...");
             //Console.ReadLine();
 
-            CrawlerManager.distributeWorkAmongstCrawlers(page1);
-            CrawlerManager.distributeWorkAmongstCrawlers(page2);
-            CrawlerManager.distributeWorkAmongstCrawlers(page3);
-            CrawlerManager.distributeWorkAmongstCrawlers(page4);
-            CrawlerManager.distributeWorkAmongstCrawlers(page5);
-            CrawlerManager.distributeWorkAmongstCrawlers(page6);
-            CrawlerManager.distributeWorkAmongstCrawlers(page7);
-            CrawlerManager.distributeWorkAmongstCrawlers(page8);
+            /*CrawlerManager.distributeWorkAmongstCrawlers(page8);
             CrawlerManager.distributeWorkAmongstCrawlers(page9);
-            CrawlerManager.distributeWorkAmongstCrawlers(page10);
-            CrawlerManager.distributeWorkAmongstCrawlers(page11);
             CrawlerManager.distributeWorkAmongstCrawlers(page12);
-            CrawlerManager.distributeWorkAmongstCrawlers(page13);
             CrawlerManager.distributeWorkAmongstCrawlers(page14);
             CrawlerManager.distributeWorkAmongstCrawlers(page15);
-            //crawlermanager.distributeWorkAmongstCrawlers(page16);
             CrawlerManager.distributeWorkAmongstCrawlers(page17);
             CrawlerManager.distributeWorkAmongstCrawlers(page18);
             CrawlerManager.distributeWorkAmongstCrawlers(page19);
-            //CrawlerManager.distributeWorkAmongstCrawlers(page20);
             CrawlerManager.distributeWorkAmongstCrawlers(page21);
             CrawlerManager.distributeWorkAmongstCrawlers(page22);
             CrawlerManager.distributeWorkAmongstCrawlers(page23);
-            CrawlerManager.distributeWorkAmongstCrawlers(page24);
-            CrawlerManager.distributeWorkAmongstCrawlers(page25);
+            CrawlerManager.distributeWorkAmongstCrawlers(page25);*/
+            CrawlerManager.distributeWorkAmongstCrawlers(page1);
+            //CrawlerManager.distributeWorkAmongstCrawlers(page2);
+            //CrawlerManager.distributeWorkAmongstCrawlers(page3);
+            //CrawlerManager.distributeWorkAmongstCrawlers(page4);
 
             Console.WriteLine("Distributed work to crawlers....");
             //Console.ReadLine();

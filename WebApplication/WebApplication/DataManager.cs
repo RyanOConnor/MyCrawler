@@ -11,7 +11,7 @@ namespace WebApplication
 {
     public static class DataManager
     {
-        private static Queue<HTMLRecord> writeQueue { get; private set; }
+        private static Queue<HTMLRecord> writeQueue { get; set; }
 
         public static void createEntry(ObjectId urlid, string url)
         {
@@ -30,24 +30,24 @@ namespace WebApplication
             mockDatabase.Add(page);
         }
 
-        public HTMLRecord findUrlById(ObjectId id)
+        public static HTMLRecord findUrlById(ObjectId id)
         {
-            return new HTMLRecord("", "", DateTime.Now, new List<string>());
+            return new HTMLRecord("", "", DateTime.Now, new List<string>(),new List<string>());
         }
 
-        public HTMLRecord findUrlByUrl(string url)
+        public static HTMLRecord findUrlByUrl(string url)
         {
-            return new HTMLRecord("", "", DateTime.Now, new List<string>());
+            return new HTMLRecord("", "", DateTime.Now, new List<string>(),new List<string>());
         }
 
-        public List<HTMLRecord> findMultipleByDateTime(List<DateTime> timeStamps)
+        public static List<HTMLRecord> findMultipleByDateTime(List<DateTime> timeStamps)
         {
             return new List<HTMLRecord>();
         }
 
-        public HTMLRecord findSingleByDateTime(DateTime timeStamp)
+        public static HTMLRecord findSingleByDateTime(DateTime timeStamp)
         {
-            return new HTMLRecord("", "", DateTime.Now, new List<string>());
+            return new HTMLRecord("", "", DateTime.Now, new List<string>() ,new List<string>());
         }
 
     }
@@ -62,14 +62,17 @@ namespace WebApplication
         [DataMember]
         public DateTime timeStamp { get; private set; }
         [DataMember]
-        public List<string> htmlHashes { get; private set; }
+        public List<string> htmlTags { get; private set; }
+        [DataMember]
+        public List<string> keywords { get; private set; }
 
-        public HTMLRecord(string id, string url, DateTime timeStamp, List<string> contentHashes)
+        public HTMLRecord(string id, string url, DateTime timeStamp, List<string> tags, List<string> keywords)
         {
             this.id = id;
             this.url = url;
             this.timeStamp = timeStamp;
-            this.htmlHashes = contentHashes;
+            this.htmlTags = tags;
+            this.keywords = keywords;
         }
     }
 }
