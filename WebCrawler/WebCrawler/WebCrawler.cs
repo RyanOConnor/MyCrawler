@@ -10,6 +10,8 @@ using System.Web.Script.Serialization;
 using System.Collections.Concurrent;
 using System.Runtime.Serialization.Json;
 using System.IO;
+using System.Diagnostics;
+using HtmlAgilityPack;
 
 namespace WebCrawler
 {
@@ -19,14 +21,17 @@ namespace WebCrawler
     {
         public static CrawlerStatus status { get; private set; }
         private static BlockingCollection<HTMLPage> documentQueue { get; set; }
-        private static BlockingCollection<HTMLPage> waitQueue { get; set; }
+        private static PriorityQueue<int, HTMLPage> waitQueue { get; set; }
+        private static ManualResetEvent loadWaitDone = new ManualResetEvent(false);
+        private static ManualResetEvent loadDocDone = new ManualResetEvent(false);
         public static int cores = Environment.ProcessorCount;
+        private static object syncRoot = new object();
 
         static WebCrawler()
         {
             status = CrawlerStatus.ok;
             documentQueue = new BlockingCollection<HTMLPage>();
-            waitQueue = new BlockingCollection<HTMLPage>();
+            waitQueue = new PriorityQueue<int, HTMLPage>();
         }
 
         public static void start()
@@ -42,6 +47,14 @@ namespace WebCrawler
 
         }
 
+        public static void loadPages()
+        {
+            Thread loadDocQueue = new Thread(loadDocumentQueue);
+            Thread loadWaitTree = new Thread(loadFromDelayCollection);
+            loadDocQueue.Start();
+            loadWaitTree.Start();
+        }
+
         public static void sendErrorMessage(CrawlerStatus errorMsg)
         {
             // Send application error information
@@ -49,60 +62,91 @@ namespace WebCrawler
 
         public static void enqueue(HTMLPage webPage)
         {
-            Console.WriteLine("enqueueing [{0}]...", webPage.domainURL.AbsoluteUri);
+            //Console.WriteLine("enqueueing [{0}]...", webPage.domainURL.AbsoluteUri);
             documentQueue.Add(webPage);
+            loadDocDone.Set();
         }
 
-        public static void enqueueWait(HTMLPage webPage)
+        public static void enqueueDelayCollection(HTMLPage webPage)
         {
-            waitQueue.Add(webPage);
+            lock (syncRoot)
+            {
+                waitQueue.Enqueue(webPage.waitTime, webPage);
+                loadWaitDone.Set();
+            }
         }
 
-        public static void loadPages()
+        public static KeyValuePair<int, HTMLPage> dequeueDelayCollection()
         {
-            // Multi-threaded download
-            // Pull page off of waitQueue first if it's ready
-            // If documentQueue.Dequeue().update() returns bad status code, send page to waitQueue
-            //      if it returns a really bad status code then remove it and/or notify web application
+            lock(syncRoot)
+            {
+                return waitQueue.Dequeue();
+            }
+        }
 
-            int i;
-            //ThreadPool.SetMaxThreads(cores, cores);
+        public static void loadFromDelayCollection()
+        {
+            int loopCounter = 0;
+            ManualResetEvent allowLooping = new ManualResetEvent(false);
+
+            while (true)
+            {
+                if (waitQueue.Count == 0)
+                {
+                    loadWaitDone.WaitOne();
+                }
+
+                KeyValuePair<int, HTMLPage> page = dequeueDelayCollection();
+
+                if (page.Key > page.Value.millisecondsSinceWait())
+                {
+                    Thread.Sleep(page.Key - page.Value.millisecondsSinceWait());
+                }
+
+                page.Value.update();
+
+                loadWaitDone.Reset();
+
+                Console.WriteLine("loadFromWaitTree(): " + loopCounter);
+                loopCounter++;
+            }
+        }
+
+        public static void loadDocumentQueue()
+        {
+            int loopCounter = 0;
             while(true)
             {
-                for (i = 0; i < waitQueue.Count; i++)
+                loadDocDone.Reset();
+                foreach(HTMLPage page in documentQueue)
                 {
-                    ThreadPool.QueueUserWorkItem(new WaitCallback(loadPageFromWaitQueue));
+                    documentQueue.Take().update();
+                    loopCounter++;
                 }
-                for (i = 0; i < documentQueue.Count; i++)
-                {
-                    ThreadPool.QueueUserWorkItem(new WaitCallback(loadPageFromDocumentQueue));
-                }
+                Console.WriteLine("loadDocumentQueue(): " + loopCounter);
+                loadDocDone.WaitOne();
             }
         }
 
-        public static void loadPageFromWaitQueue(object stateInfo)
+        public static void signalDelayCollection()
         {
-            HTMLPage page = waitQueue.Take();
-            Thread.Sleep(page.waitTime);
-            HttpStatusCode code = page.update();
-            if(code != HttpStatusCode.OK)
-            {
-                page.waitTime = 10000;      // set time to amount determined from status code, or arbitrary random
-                waitQueue.Add(page);
-                Console.WriteLine("\n[{0}] has been wait queued...", page.domainURL.AbsoluteUri);
-            }
-        }
-
-        public static void loadPageFromDocumentQueue(object stateInfo)
-        {
-            HTMLPage page = documentQueue.Take();
-            HttpStatusCode code = page.update();
-            if(code != HttpStatusCode.OK)
-            {
-                page.waitTime = 10000;      // set time to amount determined from status code, or arbitrary random
-                waitQueue.Add(page);
-                Console.WriteLine("\n[{0}] has been wait queued...", page.domainURL.AbsoluteUri);
-            }
+            loadWaitDone.Set();
         }
     }
+
+    /*public class DuplicateKeyComparer<TKey> : IComparer<TKey> where TKey : IComparable
+    {
+        #region IComparer<TKey> Members
+        public int Compare(TKey x, TKey y)
+        {
+            int result = x.CompareTo(y);
+
+            if (result == 0)
+                return 1;
+            else
+                return result;
+        }
+        #endregion
+    }*/
+
 }

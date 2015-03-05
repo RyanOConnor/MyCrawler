@@ -113,7 +113,7 @@ namespace WebCrawler
                 SocketHandle serverSocket = (SocketHandle)result.AsyncState;
 
                 int bytesSent = serverSocket.socket.EndSend(result);
-                Console.WriteLine("Sent {0} bytes to client", bytesSent);
+                //Console.WriteLine("Sent {0} bytes to client", bytesSent);
 
                 sendDone.Set();
             }
@@ -162,8 +162,8 @@ namespace WebCrawler
                             // PLACE JSON OBJECT INTO WORK QUEUE
                             WebCrawler.enqueue(deserializeJSON(content));
                         }
-                        Console.WriteLine("Read {0} bytes from socket.", content.Length);
-                        Console.WriteLine("\tData: {0}", content);
+                        //Console.WriteLine("Read {0} bytes from socket.", content.Length);
+                        //Console.WriteLine("\tData: {0}", content);
                         receiveDone.Set();
                     }
                     else
