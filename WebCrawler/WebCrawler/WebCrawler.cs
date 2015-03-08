@@ -20,18 +20,21 @@ namespace WebCrawler
     static class WebCrawler
     {
         public static CrawlerStatus status { get; private set; }
-        private static BlockingCollection<HTMLPage> documentQueue { get; set; }
-        private static PriorityQueue<int, HTMLPage> waitQueue { get; set; }
+        private static BlockingCollection<HTMLPage> workQueue { get; set; }
+        private static PriorityQueue<DateTime, HTMLPage> waitQueue { get; set; }
+        private static SortedDictionary<string, DateTime> restrictedDomains { get; set; }
         private static ManualResetEvent loadWaitDone = new ManualResetEvent(false);
         private static ManualResetEvent loadDocDone = new ManualResetEvent(false);
-        public static int cores = Environment.ProcessorCount;
-        private static object syncRoot = new object();
+        public const int DOMAIN_DELAY_PERIOD = 2000;
+        private static object delaySyncRoot = new object();
+        private static object domainSyncRoot = new object();
 
         static WebCrawler()
         {
             status = CrawlerStatus.ok;
-            documentQueue = new BlockingCollection<HTMLPage>();
-            waitQueue = new PriorityQueue<int, HTMLPage>();
+            workQueue = new BlockingCollection<HTMLPage>();
+            waitQueue = new PriorityQueue<DateTime, HTMLPage>();
+            restrictedDomains = new SortedDictionary<string, DateTime>();
         }
 
         public static void start()
@@ -41,15 +44,9 @@ namespace WebCrawler
             mainThread.Start();
         }
 
-        public static void crawl()
-        {
-            // handles all threads, loadPages and others included
-
-        }
-
         public static void loadPages()
         {
-            Thread loadDocQueue = new Thread(loadDocumentQueue);
+            Thread loadDocQueue = new Thread(loadFromDocumentQueue);
             Thread loadWaitTree = new Thread(loadFromDelayCollection);
             loadDocQueue.Start();
             loadWaitTree.Start();
@@ -60,35 +57,9 @@ namespace WebCrawler
             // Send application error information
         }
 
-        public static void enqueue(HTMLPage webPage)
-        {
-            //Console.WriteLine("enqueueing [{0}]...", webPage.domainURL.AbsoluteUri);
-            documentQueue.Add(webPage);
-            loadDocDone.Set();
-        }
-
-        public static void enqueueDelayCollection(HTMLPage webPage)
-        {
-            lock (syncRoot)
-            {
-                waitQueue.Enqueue(webPage.waitTime, webPage);
-                loadWaitDone.Set();
-            }
-        }
-
-        public static KeyValuePair<int, HTMLPage> dequeueDelayCollection()
-        {
-            lock(syncRoot)
-            {
-                return waitQueue.Dequeue();
-            }
-        }
-
         public static void loadFromDelayCollection()
         {
-            int loopCounter = 0;
             ManualResetEvent allowLooping = new ManualResetEvent(false);
-
             while (true)
             {
                 if (waitQueue.Count == 0)
@@ -96,57 +67,118 @@ namespace WebCrawler
                     loadWaitDone.WaitOne();
                 }
 
-                KeyValuePair<int, HTMLPage> page = dequeueDelayCollection();
-
-                if (page.Key > page.Value.millisecondsSinceWait())
+                KeyValuePair<DateTime, HTMLPage> page = dequeueDelayQueue();
+                int domainRestriction = getDomainRestriction(page.Value);
+                if(domainRestriction > 0)
                 {
-                    Thread.Sleep(page.Key - page.Value.millisecondsSinceWait());
+                    //page.Value.setWaitTime(DOMAIN_DELAY_PERIOD);
+                    enqueueDelayQueue(page.Value, domainRestriction);
                 }
-
-                page.Value.update();
+                else
+                {
+                    ThreadPool.QueueUserWorkItem(new WaitCallback(page.Value.sleepThenUpdate));
+                    addRestrictedDomain(page.Value);
+                    Console.WriteLine("WaitQueue: {0} \t Restricted: {1}", waitQueue.Count, restrictedDomains.Count);
+                }
 
                 loadWaitDone.Reset();
-
-                Console.WriteLine("loadFromWaitTree(): " + loopCounter);
-                loopCounter++;
             }
         }
 
-        public static void loadDocumentQueue()
+        public static void loadFromDocumentQueue()
         {
-            int loopCounter = 0;
-            while(true)
+            while (true)
             {
-                loadDocDone.Reset();
-                foreach(HTMLPage page in documentQueue)
+                if(workQueue.Count == 0)
                 {
-                    documentQueue.Take().update();
-                    loopCounter++;
+                    loadDocDone.WaitOne();
                 }
-                Console.WriteLine("loadDocumentQueue(): " + loopCounter);
-                loadDocDone.WaitOne();
+
+                HTMLPage page = dequeueWorkQueue();
+                int domainRestriction = getDomainRestriction(page);
+                if(domainRestriction > 0)
+                {
+                    //page.setWaitTime(DOMAIN_DELAY_PERIOD);
+                    enqueueDelayQueue(page, domainRestriction);
+                }
+                else
+                {
+                    page.beginUpdate();
+                    addRestrictedDomain(page);
+                }
+
+                loadDocDone.Reset();
             }
         }
 
-        public static void signalDelayCollection()
+        private static void addRestrictedDomain(HTMLPage page)
         {
-            loadWaitDone.Set();
+            lock (domainSyncRoot)
+            {
+                if (restrictedDomains.ContainsKey(page.domain.Host))
+                {
+                    restrictedDomains[page.domain.Host] = DateTime.Now;
+                }
+                else
+                {
+                    restrictedDomains.Add(page.domain.Host, DateTime.Now);
+                }
+            }
+        }
+
+        private static int getDomainRestriction(HTMLPage page)
+        {
+            lock(domainSyncRoot)
+            {
+                if(restrictedDomains.ContainsKey(page.domain.Host))
+                {
+                    int timeSinceLastUpdate = (int)(DateTime.Now - restrictedDomains[page.domain.Host]).TotalMilliseconds;
+
+                    return DOMAIN_DELAY_PERIOD - timeSinceLastUpdate;
+
+                    /*var list = restrictedDomains.Where(x => (int)(DateTime.Now - x.Value).TotalMilliseconds > DOMAIN_DELAY_PERIOD)
+                                        .Select(x => x.Key).ToList();
+
+                    foreach(string domain in list)
+                    {
+                        restrictedDomains.Remove(domain);
+                    }*/
+                } 
+                else
+                {
+                    return 0;
+                }
+            }
+        }
+
+        public static void enqueueWorkQueue(HTMLPage webPage)
+        {
+            workQueue.Add(webPage);
+            loadDocDone.Set();
+        }
+
+        public static HTMLPage dequeueWorkQueue()
+        {
+            return workQueue.Take();
+        }
+
+        public static void enqueueDelayQueue(HTMLPage webPage, int delay)
+        {
+            lock (delaySyncRoot)
+            {
+                int priorityLevel = delay;
+                Console.WriteLine("Priority: {0} - {1}", priorityLevel, webPage.domain.AbsoluteUri);
+                waitQueue.Enqueue(DateTime.Now, webPage);
+                loadWaitDone.Set();
+            }
+        }
+
+        public static KeyValuePair<DateTime, HTMLPage> dequeueDelayQueue()
+        {
+            lock (delaySyncRoot)
+            {
+                return waitQueue.Dequeue();
+            }
         }
     }
-
-    /*public class DuplicateKeyComparer<TKey> : IComparer<TKey> where TKey : IComparable
-    {
-        #region IComparer<TKey> Members
-        public int Compare(TKey x, TKey y)
-        {
-            int result = x.CompareTo(y);
-
-            if (result == 0)
-                return 1;
-            else
-                return result;
-        }
-        #endregion
-    }*/
-
 }

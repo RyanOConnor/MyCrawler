@@ -16,7 +16,6 @@ using CsQuery;
 using System.Threading;
 using System.Text.RegularExpressions;
 
-
 namespace WebCrawler
 {
     public class ChildPage : HTMLPage
@@ -27,6 +26,16 @@ namespace WebCrawler
             :base(url, timeStamp)
         {
             this.manualEvent = manualEvent;
+        }
+
+        public override void beginUpdate()
+        {
+            HttpWebRequest request = (HttpWebRequest)HttpWebRequest.Create(url);
+            request.Method = WebRequestMethods.Http.Get;
+            request.Headers.Add(HttpRequestHeader.AcceptEncoding, "gzip,deflate");
+            request.Proxy = null;
+
+            IAsyncResult response = request.BeginGetResponse(new AsyncCallback(getResponse), request);
         }
 
         protected override void getResponse(IAsyncResult webRequest)
@@ -41,30 +50,32 @@ namespace WebCrawler
                 {
                     string htmlStr = decompressHtml(response);
 
-                    //Console.WriteLine("HTML from {0}: \n{1}", domain.AbsoluteUri, htmlStr);
-                    Console.WriteLine("\nLoaded {0}...", domain.AbsoluteUri);
-
-                    if (htmlStr == string.Empty)
-                        Console.WriteLine();
-
                     htmlDoc = new HtmlDocument();
                     htmlDoc.LoadHtml(htmlStr);
 
-                    //Console.WriteLine("\n\t\t Updated [{0}] in {1}ms, size: {2}bytes", domainURL.AbsoluteUri, sw.ElapsedMilliseconds, contentLength);
+                    Console.WriteLine("\n[{0}] Loaded {1}", DateTime.Now.TimeOfDay ,domain.AbsoluteUri);
+
+                    manualEvent.Set();
                 }
                 else
                 {
-                    this.setWaitTime(10000);          // if bad status code, place "this" on waitQueue
-                    WebCrawler.enqueueDelayCollection(this);   //      maybe just skip this portion to not hold up parent thread
+                    this.setWaitTime(10000);
+                    WebCrawler.enqueueDelayQueue(this, 10000);
                 }
             }
             catch (Exception ex)
             {
-                // NOTIFY APPLICATION FROM HERE THAT PAGE COULD NOT BE LOADED
                 Console.WriteLine(ex.ToString());
+                this.setWaitTime(waitTime + 10000);
+                if (waitTime < 60000)
+                {
+                    WebCrawler.enqueueDelayQueue(this, 10000);
+                }
+                else
+                {
+                    // NOTIFY APPLICATION
+                }
             }
-
-            manualEvent.Set();
         }
     }
 
@@ -83,8 +94,9 @@ namespace WebCrawler
         private List<string> htmlTags { get; set; }
         [DataMember]
         private List<string> keywords { get; set; }
+        [DataMember]
+        private List<string> rankedResults { get; set; }
         protected HtmlDocument htmlDoc { get; set; }
-        private List<string> htmlResults { get; set; }
         private List<ChildPage> childPages { get; set; }
         public int waitTime { get; set; }
 
@@ -109,18 +121,26 @@ namespace WebCrawler
             domain = new Uri(url);
         }
 
-        public int millisecondsSinceWait()
-        {
-            return (int)((DateTime.Now - this.timeStamp).TotalMilliseconds);
-        }
-
         public void setWaitTime(int milliseconds)
         {
             this.waitTime = milliseconds;
-            this.timeStamp = DateTime.Now;
         }
 
-        public void update()
+        public int millisecondsLeftToWait()
+        {
+            return waitTime - (int)((DateTime.Now - this.timeStamp).TotalMilliseconds);
+        }
+
+        public void sleepThenUpdate(object stateInfo)
+        {
+            if (this.millisecondsLeftToWait() > 0)
+            {
+                Thread.Sleep(this.millisecondsLeftToWait());
+            }
+            this.beginUpdate();
+        }
+
+        public virtual void beginUpdate()
         {
             HttpWebRequest request = (HttpWebRequest)HttpWebRequest.Create(domain.AbsoluteUri);
             request.Method = WebRequestMethods.Http.Get;
@@ -146,25 +166,32 @@ namespace WebCrawler
 
                     if (keywords.Count != 0)
                     {
-                        List<ChildPage> linkedPages = loadChildPages(results.ToList());
+                        List<ChildPage> linkedToPages = loadChildPages(results.ToList());
 
-                        List<string> rankedResults = filterByKeywords(linkedPages);
+                        rankedResults = filterByKeyWords2(linkedToPages);
 
-                        Console.WriteLine();
+                        // PLACE ONTO SENDQUEUE
+                        SocketServer.sendHTMLPage(this);
                     }
-                    //Console.WriteLine("\n\t\t Updated [{0}] in {1}ms, size: {2}bytes", domainURL.AbsoluteUri, sw.ElapsedMilliseconds, contentLength);
                 }
                 else
                 {
-                    this.waitTime = 10000;          // if bad status code, place "this" on waitQueue
-                    WebCrawler.enqueueDelayCollection(this);
+                    this.setWaitTime(10000);
+                    WebCrawler.enqueueDelayQueue(this, 10000);
                 }
             }
             catch (Exception ex)
             {
-                // NOTIFY APPLICATION FROM HERE THAT PAGE COULD NOT BE LOADED
                 Console.WriteLine(ex.ToString());
-                throw ex;
+                this.setWaitTime(waitTime + 10000);
+                if (waitTime < 60000)
+                {
+                    WebCrawler.enqueueDelayQueue(this, 10000);
+                }
+                else
+                {
+                    // NOTIFY APPLICATION
+                }
             }
         }
 
@@ -248,35 +275,43 @@ namespace WebCrawler
 
         private List<ChildPage> loadChildPages(List<string> results)
         {
-            int numberOfTasks = results.Count;
-            int waitMultiplier = 1;
             childPages = new List<ChildPage>();
 
             ManualResetEvent signal = new ManualResetEvent(false);
+            Thread parallelWait = new Thread(() => waitForChildPages(signal, results.Count));
+            parallelWait.Start();
 
             foreach(string url in results)
             {
-                ChildPage childPage = new ChildPage(url, DateTime.Now, signal);
+                ChildPage page = new ChildPage(url, DateTime.Now, signal);
 
-                if(childPage.domain.Host == this.domain.Host)
+                if (page.domain.Host == this.domain.Host)
                 {
-                    childPage.setWaitTime(2000 * waitMultiplier);
-                    childPage.timeStamp = DateTime.Now;
-                    waitMultiplier++;
+                    WebCrawler.enqueueDelayQueue(page, WebCrawler.DOMAIN_DELAY_PERIOD);
+                }
+                else
+                {
+                    WebCrawler.enqueueWorkQueue(page);
                 }
 
-                childPages.Add(childPage);
-                WebCrawler.enqueueDelayCollection(childPage);
+                childPages.Add(page);
             }
 
-            while(numberOfTasks != 0)
+            parallelWait.Join();
+
+            return childPages;
+        }
+
+        private void waitForChildPages(ManualResetEvent signal, int count)
+        {
+            int numberOfTasks = count;
+
+            while (numberOfTasks != 0)
             {
                 signal.WaitOne();
                 numberOfTasks--;
                 signal.Reset();
             }
-
-            return childPages;
         }
 
         private void indexHtmlCsQuery(string html)
@@ -355,55 +390,86 @@ namespace WebCrawler
             return links;
         }
 
-        // Parallelize this method to divide the list into equal parts
+        // Parallelized to leave one core available for HTTP requests
         private List<string> filterByKeywords(List<ChildPage> childPages)
         {
             Stopwatch sw = new Stopwatch();
             sw.Start();
 
-            List<KeyValuePair<string, int>> results = new List<KeyValuePair<string, int>>();
+            List<Thread> threads = new List<Thread>();
+            List<List<KeyValuePair<string, int>>> segments = new List<List<KeyValuePair<string, int>>>();
+             
+            int segLen = (int)Math.Ceiling((double)childPages.Count / (Environment.ProcessorCount - 1));
+            int mod = childPages.Count % (int)segLen;
+            List<int[]> positions = new List<int[]>();
 
-            foreach (ChildPage page in childPages)
+            for(int i = 0; i < childPages.Count; i += segLen)
             {
-                string innerText = page.htmlDoc.DocumentNode.InnerText.ToLower();
-                int pageScore = 0;
-                foreach (string keyword in keywords)
+                Thread thread = null;
+                if(i == childPages.Count - mod)
                 {
-                    if (innerText.Contains(keyword.ToLower()))
-                    {
-                        pageScore += Regex.Matches(innerText, keyword).Count;
-                    }
-                    else
-                    {
-                        continue;
-                    }
+                    int[] pos = new int[2] { i, i + mod };
+                    positions.Add(pos);
+                    thread = new Thread(() => segments.Add(new List<KeyValuePair<string, int>>(doFilterByKeywords(childPages, pos[0], pos[1]))));
                 }
-                results.Add(new KeyValuePair<string, int>(page.domain.AbsoluteUri, pageScore));
+                else
+                {
+                    int[] pos = new int[2] { i, i + segLen };
+                    positions.Add(pos);
+                    thread = new Thread(() => segments.Add(new List<KeyValuePair<string, int>>(doFilterByKeywords(childPages, pos[0], pos[1]))));
+                }
+                thread.Start();
+                threads.Add(thread);
+            }
+
+            foreach (Thread thread in threads)
+                thread.Join();
+
+            List<KeyValuePair<string, int>> results = new List<KeyValuePair<string, int>>();
+            foreach(List<KeyValuePair<string,int>> segment in segments)
+            {
+                results.AddRange(segment);
             }
 
             var sortedList = from entry in results orderby entry.Value descending select entry;
 
-            Console.ForegroundColor = ConsoleColor.Cyan;
-            foreach (KeyValuePair<string, int> pair in sortedList)
-            {
-                Console.WriteLine("[PageScore]: {0} \t [Page]: {1}", pair.Value, pair.Key);
-            }
-            Console.ForegroundColor = ConsoleColor.Gray;
 
             sw.Stop();
-            Console.WriteLine("Normal foreach: {0}ms", sw.ElapsedMilliseconds);
+            Console.WriteLine("\nManual Threading: {0}ms", sw.ElapsedMilliseconds);
 
             return sortedList.Select(x => x.Key).ToList();
         }
 
-        private List<string> filterByKeyWords2(List<ChildPage> childPages)
+        private List<KeyValuePair<string, int>> doFilterByKeywords(List<ChildPage> childPages, int startPos, int endPos)
         {
-            Stopwatch sw = new Stopwatch();
-            sw.Start();
-
             List<KeyValuePair<string, int>> results = new List<KeyValuePair<string, int>>();
 
-            Parallel.ForEach(childPages, page =>
+            for (int i = startPos; i < endPos; i++)
+            {
+                string innerText = childPages[i].htmlDoc.DocumentNode.InnerText.ToLower();
+                int pageScore = 0;
+                foreach(string keyword in keywords)
+                {
+                    if(innerText.Contains(keyword.ToLower()))
+                    {
+                        pageScore += Regex.Matches(innerText, keyword).Count;
+                    }
+                    else
+                    {
+                        continue;
+                    }
+                }
+                results.Add(new KeyValuePair<string, int>(childPages[i].domain.AbsoluteUri, pageScore));
+            }
+
+            return results;
+        }
+
+        private List<string> filterByKeyWords2(List<ChildPage> childPages)
+        {
+            List<KeyValuePair<string, int>> results = new List<KeyValuePair<string, int>>();
+
+            foreach(ChildPage page in childPages)
             {
                 string innerText = page.htmlDoc.DocumentNode.InnerText.ToLower();
                 int pageScore = 0;
@@ -419,49 +485,44 @@ namespace WebCrawler
                     }
                 }
                 results.Add(new KeyValuePair<string, int>(page.domain.AbsoluteUri, pageScore));
-            });
+            }
 
             var sortedList = from entry in results orderby entry.Value descending select entry;
 
-            Console.ForegroundColor = ConsoleColor.Cyan;
+            Console.ForegroundColor = ConsoleColor.Yellow;
             foreach (KeyValuePair<string, int> pair in sortedList)
             {
                 Console.WriteLine("[PageScore]: {0} \t [Page]: {1}", pair.Value, pair.Key);
             }
             Console.ForegroundColor = ConsoleColor.Gray;
-
-            sw.Stop();
-            Console.WriteLine("Parallel.ForEach: {0}ms", sw.ElapsedMilliseconds);
 
             return sortedList.Select(x => x.Key).ToList();
         }
 
         private HashSet<string> fixUrls(HashSet<string> urls)
         {
-            HashSet<string> fixedUrls = new HashSet<string>(urls
-                                            .Where(x => x.StartsWith("/"))
-                                            .Select(x => domain.Scheme + "://" + domain.Host + x));
-            /*foreach(string url in urls)
+            urls.Remove(domain.AbsoluteUri);
+
+            HashSet<string> fixedUrlSet = new HashSet<string>();
+            foreach(string url in urls)
             {
-                if(url.StartsWith("/"))
+                Uri fixedUri;
+                if(Uri.TryCreate(domain, url, out fixedUri))
                 {
-                    url = domain.Scheme + "://" + domain.Host + url;
+                    fixedUrlSet.Add(fixedUri.AbsoluteUri);
+                }
+                else
+                {
+                    // do regular expression checking and string concatenation....
+                    Match regx = Regex.Match(url, @"\.[a-z]{2,3}(\.[a-z]{2,3})?");
+                    if (!regx.Success)
+                    {
+                        fixedUrlSet.Add(domain.Scheme + "://" + domain.Host + url);
+                    }
                 }
             }
-            for(int i = 0; i < urls.Count; i++)
-            {
-                if(urls[i].StartsWith("/"))
-                {
-                    urls[i] = domain.Scheme + "://" + domain.Host + urls[i];
-                }
-            }*/
 
-            return fixedUrls;
-        }
-
-        private List<string> removeDuplicates(List<string> urls)
-        {
-            return new List<string>();
+            return fixedUrlSet;
         }
 
         private bool allowedByRobotsTXT()
@@ -470,7 +531,5 @@ namespace WebCrawler
 
             return true;
         }
-
-
     }
 }

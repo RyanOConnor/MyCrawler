@@ -36,6 +36,7 @@ namespace WebCrawler
 
         public static void startClient()
         {
+            sendQueue = new BlockingCollection<HTMLPage>();
             IPHostEntry ipHostInfo = Dns.GetHostEntry(Dns.GetHostName());
             IPAddress ipAddress = IPAddress.Parse("192.168.1.132");
             IPEndPoint endPoint = new IPEndPoint(ipAddress, 11000);
@@ -56,6 +57,23 @@ namespace WebCrawler
             }
         }
 
+        public static void reconnectToServer()
+        {
+            IPAddress ipAddress = IPAddress.Parse("192.168.1.132");
+            IPEndPoint endPoint = new IPEndPoint(ipAddress, 11000);
+
+            Socket server = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+            try
+            {
+                server.BeginConnect(endPoint, new AsyncCallback(connectCallBack), server);
+                connectDone.WaitOne();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine(ex.ToString());
+            }
+        }
+
         public static void communicateLoop(Socket serverSocket)
         {
             SocketHandle server = new SocketHandle(serverSocket);
@@ -64,7 +82,19 @@ namespace WebCrawler
             {
                 while (true)
                 {
-                    string message = "next";        // JSON OBJECT ON SENDQUEUE.DEQUEUE
+                    string message = string.Empty;        // JSON OBJECT ON SENDQUEUE.DEQUEUE
+                    if(sendQueue.Count != 0)
+                    {
+                        message = serializeToJSON(sendQueue.Take());
+                        if(!server.socket.Poll(1, SelectMode.SelectWrite))
+                        {
+                            reconnectToServer();
+                        }
+                    }
+                    else
+                    {
+                        message = "next";
+                    }
 
                     clientSend(server, message + "<EOF>");
                     sendDone.WaitOne();
@@ -111,10 +141,7 @@ namespace WebCrawler
             try
             {
                 SocketHandle serverSocket = (SocketHandle)result.AsyncState;
-
                 int bytesSent = serverSocket.socket.EndSend(result);
-                //Console.WriteLine("Sent {0} bytes to client", bytesSent);
-
                 sendDone.Set();
             }
             catch (Exception ex)
@@ -160,10 +187,8 @@ namespace WebCrawler
                         else
                         {
                             // PLACE JSON OBJECT INTO WORK QUEUE
-                            WebCrawler.enqueue(deserializeJSON(content));
+                            WebCrawler.enqueueWorkQueue(deserializeJSON(content));
                         }
-                        //Console.WriteLine("Read {0} bytes from socket.", content.Length);
-                        //Console.WriteLine("\tData: {0}", content);
                         receiveDone.Set();
                     }
                     else
@@ -203,6 +228,9 @@ namespace WebCrawler
         public static void sendHTMLPage(HTMLPage page)
         {
             sendQueue.Add(page);
+            receiveDone.Set();
+            Console.WriteLine("Trying to send {0}...", page.domain.AbsoluteUri);
+            Console.ReadLine();
         }
     }
 }
