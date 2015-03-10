@@ -48,19 +48,18 @@ namespace WebCrawler
 
                 if (response.StatusCode == HttpStatusCode.OK)
                 {
-                    string htmlStr = decompressHtml(response);
+                    string htmlString = decompressHtml(response);
 
                     htmlDoc = new HtmlDocument();
-                    htmlDoc.LoadHtml(htmlStr);
+                    htmlDoc.LoadHtml(htmlString);
 
-                    Console.WriteLine("\n[{0}] Loaded {1}", DateTime.Now.TimeOfDay ,domain.AbsoluteUri);
-
+                    Console.WriteLine("\n[{0}] - {2}seconds - Loaded {1}", DateTime.Now.TimeOfDay, domain.Host, (DateTime.Now - this.timeStamp).TotalSeconds);
                     manualEvent.Set();
                 }
                 else
                 {
                     this.setWaitTime(10000);
-                    WebCrawler.enqueueDelayQueue(this, 10000);
+                    WebCrawler.enqueueWorkQueue(this);
                 }
             }
             catch (Exception ex)
@@ -69,11 +68,12 @@ namespace WebCrawler
                 this.setWaitTime(waitTime + 10000);
                 if (waitTime < 60000)
                 {
-                    WebCrawler.enqueueDelayQueue(this, 10000);
+                    WebCrawler.enqueueWorkQueue(this);
                 }
                 else
                 {
                     // NOTIFY APPLICATION
+                    //manualEvent.Set();
                 }
             }
         }
@@ -124,20 +124,12 @@ namespace WebCrawler
         public void setWaitTime(int milliseconds)
         {
             this.waitTime = milliseconds;
+            this.timeStamp = DateTime.Now;
         }
 
         public int millisecondsLeftToWait()
         {
             return waitTime - (int)((DateTime.Now - this.timeStamp).TotalMilliseconds);
-        }
-
-        public void sleepThenUpdate(object stateInfo)
-        {
-            if (this.millisecondsLeftToWait() > 0)
-            {
-                Thread.Sleep(this.millisecondsLeftToWait());
-            }
-            this.beginUpdate();
         }
 
         public virtual void beginUpdate()
@@ -168,7 +160,7 @@ namespace WebCrawler
                     {
                         List<ChildPage> linkedToPages = loadChildPages(results.ToList());
 
-                        rankedResults = filterByKeyWords2(linkedToPages);
+                        rankedResults = filterByKeyWords(linkedToPages);
 
                         // PLACE ONTO SENDQUEUE
                         SocketServer.sendHTMLPage(this);
@@ -177,7 +169,7 @@ namespace WebCrawler
                 else
                 {
                     this.setWaitTime(10000);
-                    WebCrawler.enqueueDelayQueue(this, 10000);
+                    WebCrawler.enqueueWorkQueue(this);
                 }
             }
             catch (Exception ex)
@@ -186,7 +178,7 @@ namespace WebCrawler
                 this.setWaitTime(waitTime + 10000);
                 if (waitTime < 60000)
                 {
-                    WebCrawler.enqueueDelayQueue(this, 10000);
+                    WebCrawler.enqueueWorkQueue(this);
                 }
                 else
                 {
@@ -273,61 +265,6 @@ namespace WebCrawler
             return encoding;
         }
 
-        private List<ChildPage> loadChildPages(List<string> results)
-        {
-            childPages = new List<ChildPage>();
-
-            ManualResetEvent signal = new ManualResetEvent(false);
-            Thread parallelWait = new Thread(() => waitForChildPages(signal, results.Count));
-            parallelWait.Start();
-
-            foreach(string url in results)
-            {
-                ChildPage page = new ChildPage(url, DateTime.Now, signal);
-
-                if (page.domain.Host == this.domain.Host)
-                {
-                    WebCrawler.enqueueDelayQueue(page, WebCrawler.DOMAIN_DELAY_PERIOD);
-                }
-                else
-                {
-                    WebCrawler.enqueueWorkQueue(page);
-                }
-
-                childPages.Add(page);
-            }
-
-            parallelWait.Join();
-
-            return childPages;
-        }
-
-        private void waitForChildPages(ManualResetEvent signal, int count)
-        {
-            int numberOfTasks = count;
-
-            while (numberOfTasks != 0)
-            {
-                signal.WaitOne();
-                numberOfTasks--;
-                signal.Reset();
-            }
-        }
-
-        private void indexHtmlCsQuery(string html)
-        {
-            Stopwatch sw = new Stopwatch();
-            sw.Start();
-
-            var dom = CQ.CreateDocument(html);
-
-            List<string> results = cqFilterByTags(dom);
-            sw.Stop();
-
-            Console.ForegroundColor = ConsoleColor.Cyan;
-            Console.WriteLine("\n\t CsQuery found {0} links from {1} in {2}ms.", results.Count, domain.AbsoluteUri, sw.ElapsedMilliseconds);
-        }
-
         private HashSet<string> filterByTags(string html)
         {
             // (at application or client level, do not allow "noindex" or "nofollow" tags)
@@ -347,51 +284,27 @@ namespace WebCrawler
                 }
             }
 
-            HashSet<string> links = null;
+            IEnumerable<string> queryResults = null;
             if(htmlTags[htmlTags.Count-1] == "href")
             {
-                var queryResult = htmlDoc.DocumentNode.QuerySelectorAll(query).Select(x => x.Attributes["href"].Value);
-                links = new HashSet<string>(queryResult);
+                queryResults = htmlDoc.DocumentNode.QuerySelectorAll(query).Select(x => x.Attributes["href"].Value);
             }
             else if(htmlTags[htmlTags.Count-1] == "text")
             {
-                var queryResult = htmlDoc.DocumentNode.QuerySelectorAll(query).Select(x => x.InnerText).ToList();
-                links = new HashSet<string>(queryResult);
+                queryResults = htmlDoc.DocumentNode.QuerySelectorAll(query).Select(x => x.InnerText).ToList();
             }
+            else
+            { 
+                throw new Exception();
+            }
+
+            HashSet<string> links = new HashSet<string>(queryResults);
 
             return fixUrls(links);
         }
 
-        private List<string> cqFilterByTags(CQ html)
-        {
-            string query = htmlTags[0];
-            for (int i = 1; i < htmlTags.Count - 1; i++)
-            {
-                if(htmlTags[i].ElementAt(0) == '.' || htmlTags[i].ElementAt(0) == '#')
-                {
-                    query += htmlTags[i];
-                }
-                else
-                {
-                    query += " " + htmlTags[i]; 
-                }
-            }
-
-            List<string> links = null;
-            if(htmlTags[htmlTags.Count-1] == "href")
-            {
-                links = html[query].Select(x => x.GetAttribute("href")).ToList();
-            }
-            else if(htmlTags[htmlTags.Count-1] == "text")
-            {
-                links = html[query].Select(x => x.InnerText).ToList();
-            }
-
-            return links;
-        }
-
         // Parallelized to leave one core available for HTTP requests
-        private List<string> filterByKeywords(List<ChildPage> childPages)
+        private List<string> filterByKeywords2(List<ChildPage> childPages)
         {
             Stopwatch sw = new Stopwatch();
             sw.Start();
@@ -465,7 +378,7 @@ namespace WebCrawler
             return results;
         }
 
-        private List<string> filterByKeyWords2(List<ChildPage> childPages)
+        private List<string> filterByKeyWords(List<ChildPage> childPages)
         {
             List<KeyValuePair<string, int>> results = new List<KeyValuePair<string, int>>();
 
@@ -489,14 +402,51 @@ namespace WebCrawler
 
             var sortedList = from entry in results orderby entry.Value descending select entry;
 
+            printRankedPages(sortedList);
+           
+            return sortedList.Select(x => x.Key).ToList();
+        }
+
+        private void printRankedPages(IOrderedEnumerable<KeyValuePair<string, int>> pages)
+        {
             Console.ForegroundColor = ConsoleColor.Yellow;
-            foreach (KeyValuePair<string, int> pair in sortedList)
+            foreach (KeyValuePair<string, int> pair in pages)
             {
                 Console.WriteLine("[PageScore]: {0} \t [Page]: {1}", pair.Value, pair.Key);
             }
             Console.ForegroundColor = ConsoleColor.Gray;
+        }
 
-            return sortedList.Select(x => x.Key).ToList();
+        private List<ChildPage> loadChildPages(List<string> results)
+        {
+            childPages = new List<ChildPage>();
+
+            ManualResetEvent signal = new ManualResetEvent(false);
+            Thread parallelWait = new Thread(() => waitForChildPages(signal, results.Count));
+            parallelWait.Start();
+
+            foreach (string url in results)
+            {
+                ChildPage page = new ChildPage(url, DateTime.Now, signal);
+                WebCrawler.enqueueWorkQueue(page);
+                childPages.Add(page);
+            }
+
+            parallelWait.Join();
+
+            return childPages;
+        }
+
+        private void waitForChildPages(ManualResetEvent signal, int count)
+        {
+            int numberOfTasks = count;
+
+            while (numberOfTasks != 0)
+            {
+                signal.WaitOne();
+                numberOfTasks--;
+                signal.Reset();
+            }
         }
 
         private HashSet<string> fixUrls(HashSet<string> urls)
