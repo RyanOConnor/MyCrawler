@@ -28,6 +28,7 @@ namespace WebApplication
         {
             // add page to writeQueue
             mockDatabase.Add(page);
+            Console.WriteLine("{0} links from {1}", page.rankedResults.Count, page.url);
         }
 
         public static HTMLRecord findUrlById(ObjectId id)
@@ -65,6 +66,8 @@ namespace WebApplication
         public List<string> htmlTags { get; private set; }
         [DataMember]
         public List<string> keywords { get; private set; }
+        [DataMember]
+        public List<string> rankedResults { get; private set; }
 
         public HTMLRecord(string id, string url, DateTime timeStamp, List<string> tags, List<string> keywords)
         {

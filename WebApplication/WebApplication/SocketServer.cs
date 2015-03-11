@@ -39,9 +39,9 @@ namespace WebApplication
 
         private static int colorInt = 0;
         private static ConsoleColor[] nodeColors = new ConsoleColor[] { ConsoleColor.Cyan, ConsoleColor.Yellow, 
-                                                                    ConsoleColor.Red, ConsoleColor.Blue, 
-                                                                    ConsoleColor.Green, ConsoleColor.Magenta,
-                                                                    ConsoleColor.White, ConsoleColor.Gray};
+                                                                        ConsoleColor.Red, ConsoleColor.Blue, 
+                                                                        ConsoleColor.Green, ConsoleColor.Magenta,
+                                                                        ConsoleColor.White, ConsoleColor.Gray};
 
         public static void startListener()
         {
@@ -75,7 +75,6 @@ namespace WebApplication
             {
                 Console.WriteLine(ex.ToString());
             }
-
             Console.WriteLine("Closing the listener. Hit enter to continue...");
             Console.Read();
         }
@@ -90,6 +89,7 @@ namespace WebApplication
             SocketHandle socketHandle = new SocketHandle(handler, nodeColors[colorInt], colorInt);
             handler.BeginReceive(socketHandle.buffer, 0, SocketHandle.bufferSize, 0, 
                                     new AsyncCallback(readCallBack), socketHandle);
+            Console.WriteLine();
         }
 
         public static void readCallBack(IAsyncResult result)
@@ -108,16 +108,23 @@ namespace WebApplication
 
                     if (content.IndexOf("<EOF>") > -1)
                     {
-                        Console.WriteLine("Read {0} bytes from socket.", content.Length);
                         Console.ForegroundColor = socketHandle.color;
-                        Console.WriteLine("\tData: {0}", content);
 
                         if (content.StartsWith("next"))
                         {
                             // SEND NEXT WORK QUEUE ITEM
-                            string JSON = CrawlerManager.sendWorkToCrawler();
-                            listenerSend(socketHandle, JSON + "<EOF>");
-                            Console.WriteLine("Sent: " + JSON);
+                            if (CrawlerManager.workAvailable())
+                            {
+                                string JSON = CrawlerManager.sendWorkToCrawler();
+                                listenerSend(socketHandle, JSON + "<EOF>");
+                                //Console.WriteLine("Sent: " + JSON);
+                            }
+                            else
+                            {
+                                socketHandle.socket.BeginReceive(socketHandle.buffer, 0, SocketHandle.bufferSize, 0,
+                                                                     new AsyncCallback(readCallBack), socketHandle);
+                                Console.WriteLine("\nWaiting for data.... ");
+                            }
                         }
                         else
                         {
@@ -155,14 +162,9 @@ namespace WebApplication
         {
             try
             {
-                //Socket handler = (Socket)result.AsyncState;
                 SocketHandle socketHandle = (SocketHandle)result.AsyncState;
 
                 int bytesSent = socketHandle.socket.EndSend(result);
-                //Console.WriteLine("Sent {0} bytes to server.", bytesSent);
-                
-                //handler.Shutdown(SocketShutdown.Both);      // Determine way to maintain connection and remove this
-                //handler.Close();
                 socketHandle.socket.BeginReceive(socketHandle.buffer, 0, SocketHandle.bufferSize, 0,
                                     new AsyncCallback(readCallBack), socketHandle);
             }

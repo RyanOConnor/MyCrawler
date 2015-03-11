@@ -38,8 +38,13 @@ namespace WebApplication
             return Encoding.ASCII.GetString(stream.ToArray());
         }
 
-        public static HTMLRecord deserializeJSON(string message)
+        public static bool workAvailable()
         {
+            return workQueue.Count > 0;
+        }
+
+        public static HTMLRecord deserializeJSON(string message)
+        { 
             DataContractJsonSerializer ser = new DataContractJsonSerializer(typeof(HTMLRecord));
             MemoryStream stream = new MemoryStream(Encoding.Unicode.GetBytes(message));
             return ser.ReadObject(stream) as HTMLRecord;
