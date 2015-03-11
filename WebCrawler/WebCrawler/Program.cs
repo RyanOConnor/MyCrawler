@@ -14,7 +14,7 @@ namespace WebCrawler
     {
         static void Main(string[] args)
         {
-            ServicePointManager.DefaultConnectionLimit = 100;
+            ServicePointManager.DefaultConnectionLimit = 10000;
             ServicePointManager.Expect100Continue = false;
 
             //bool firstInstance;

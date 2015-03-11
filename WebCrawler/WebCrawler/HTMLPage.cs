@@ -28,16 +28,6 @@ namespace WebCrawler
             this.manualEvent = manualEvent;
         }
 
-        public override void beginUpdate()
-        {
-            HttpWebRequest request = (HttpWebRequest)HttpWebRequest.Create(url);
-            request.Method = WebRequestMethods.Http.Get;
-            request.Headers.Add(HttpRequestHeader.AcceptEncoding, "gzip,deflate");
-            request.Proxy = null;
-
-            IAsyncResult response = request.BeginGetResponse(new AsyncCallback(getResponse), request);
-        }
-
         protected override void getResponse(IAsyncResult webRequest)
         {
             HttpWebRequest request = (HttpWebRequest)webRequest.AsyncState;
@@ -132,7 +122,15 @@ namespace WebCrawler
             return waitTime - (int)((DateTime.Now - this.timeStamp).TotalMilliseconds);
         }
 
-        public virtual void beginUpdate()
+        public void sleepThenUpdate(object stateInfo)
+        {
+            if (millisecondsLeftToWait() > 0)
+                Thread.Sleep(millisecondsLeftToWait());
+
+            beginUpdate();
+        }
+
+        public void beginUpdate()
         {
             HttpWebRequest request = (HttpWebRequest)HttpWebRequest.Create(domain.AbsoluteUri);
             request.Method = WebRequestMethods.Http.Get;
@@ -162,7 +160,6 @@ namespace WebCrawler
 
                         rankedResults = filterByKeyWords(linkedToPages);
 
-                        // PLACE ONTO SENDQUEUE
                         SocketServer.sendHTMLPage(this);
                     }
                 }

@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
-using System.Collections.ObjectModel;
+using System.Threading;
 
 namespace WebCrawler
 {
@@ -16,8 +16,10 @@ namespace WebCrawler
         {
             lock (domainDictionary)
             {
-                int index = 0;
+                int index = 0;                                          
                 List<string> keys = domainDictionary.Keys.ToList();
+
+                // reimplement while loop with Timer class and Timer callback function
                 while (domainDictionary[keys[index]].IsNotAllowedToUpdate())
                 {
                     if (index == keys.Count - 1)
@@ -34,8 +36,19 @@ namespace WebCrawler
                 }
 
                 Count = domainDictionary.Count;
+                //printDomains();
                 return value;
             }
+        }
+
+        public void printDomains()
+        {
+            Console.Clear();
+            foreach(KeyValuePair<string, Domain> pair in domainDictionary)
+            {
+                Console.WriteLine("{0} items - {1}", pair.Value.Count, pair.Key);
+            }
+            
         }
 
         public void Enqueue(string key, HTMLPage value)

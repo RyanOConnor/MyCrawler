@@ -32,14 +32,8 @@ namespace WebCrawler
         public static void start()
         {
             // Start crawler to accept incoming crawl requests from application
-            Thread mainThread = new Thread(new ThreadStart(loadPages));
+            Thread mainThread = new Thread(new ThreadStart(loadWebPages));
             mainThread.Start();
-        }
-
-        public static void loadPages()
-        {
-            Thread loadWaitTree = new Thread(loadWebPages);
-            loadWaitTree.Start();
         }
 
         public static void sendErrorMessage(CrawlerStatus errorMsg)
@@ -57,7 +51,15 @@ namespace WebCrawler
                 }
 
                 HTMLPage page = workQueue.Dequeue();
-                page.beginUpdate();
+
+                if (page.waitTime != 0)
+                {
+                    ThreadPool.QueueUserWorkItem(new WaitCallback(page.sleepThenUpdate));
+                }
+                else
+                {
+                    page.beginUpdate();
+                }
 
                 loadWaitDone.Reset();
             }
