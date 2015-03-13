@@ -38,7 +38,7 @@ namespace WebCrawler
         {
             sendQueue = new BlockingCollection<HTMLPage>();
             IPHostEntry ipHostInfo = Dns.GetHostEntry(Dns.GetHostName());
-            IPAddress ipAddress = IPAddress.Parse("192.168.1.103");
+            IPAddress ipAddress = IPAddress.Parse("192.168.1.132");
             IPEndPoint endPoint = new IPEndPoint(ipAddress, 11000);
 
             Socket server = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
@@ -187,7 +187,7 @@ namespace WebCrawler
                         else
                         {
                             // PLACE JSON OBJECT INTO WORK QUEUE
-                            WebCrawler.enqueueWorkQueue(deserializeJSON(content));
+                            WebCrawler.Enqueue(deserializeJSON(content));
                         }
                         receiveDone.Set();
                     }

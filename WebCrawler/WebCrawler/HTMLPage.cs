@@ -47,7 +47,7 @@ namespace WebCrawler
                 else
                 {
                     this.setWaitTime(10000);
-                    WebCrawler.enqueueWorkQueue(this);
+                    WebCrawler.Enqueue(this);
                 }
             }
             catch (Exception ex)
@@ -60,7 +60,7 @@ namespace WebCrawler
                 this.setWaitTime(waitTime + 10000);
                 if (waitTime < 60000)
                 {
-                    WebCrawler.enqueueWorkQueue(this);
+                    WebCrawler.Enqueue(this);
                 }
                 else
                 {
@@ -168,7 +168,7 @@ namespace WebCrawler
                 else
                 {
                     this.setWaitTime(10000);
-                    WebCrawler.enqueueWorkQueue(this);
+                    WebCrawler.Enqueue(this);
                 }
             }
             catch (Exception ex)
@@ -181,7 +181,7 @@ namespace WebCrawler
                 this.setWaitTime(waitTime + 10000);
                 if (waitTime < 60000)
                 {
-                    WebCrawler.enqueueWorkQueue(this);
+                    WebCrawler.Enqueue(this);
                 }
                 else
                 {
@@ -431,7 +431,7 @@ namespace WebCrawler
             foreach (string url in results)
             {
                 ChildPage page = new ChildPage(url, DateTime.Now, signal);
-                WebCrawler.enqueueWorkQueue(page);
+                WebCrawler.Enqueue(page);
                 childPages.Add(page);
             }
 

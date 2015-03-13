@@ -20,11 +20,12 @@ namespace WebCrawler
     static class WebCrawler
     {
         public static CrawlerStatus status { get; private set; }
-        private static ManualResetEvent loadWaitDone = new ManualResetEvent(false);
+        private static Dictionary<string, Domain> domainDictionary { get; set; }
 
         static WebCrawler()
         {
             status = CrawlerStatus.ok;
+            domainDictionary = new Dictionary<string, Domain>();
         }
 
         public static void start()
@@ -39,34 +40,30 @@ namespace WebCrawler
             // Send application error information
         }
 
-        /*public static void loadWebPages()
+        public static void Enqueue(HTMLPage page)
         {
-            while(true)
+            lock (domainDictionary)
             {
-                if(workQueue.Count == 0)
+                string key = page.domain.Host;
+                if (domainDictionary.ContainsKey(key))
                 {
-                    loadWaitDone.WaitOne();
-                }
-
-                HTMLPage page = workQueue.Dequeue();
-
-                if (page.waitTime != 0)
-                {
-                    ThreadPool.QueueUserWorkItem(new WaitCallback(page.sleepThenUpdate));
+                    domainDictionary[key].Enqueue(page);
                 }
                 else
                 {
-                    page.beginUpdate();
+                    domainDictionary[key] = new Domain(key);
+                    domainDictionary[key].Enqueue(page);
+                    domainDictionary[key].initTimer();
                 }
-
-                loadWaitDone.Reset();
             }
-        }*/
+        }
 
-        public static void enqueueWorkQueue(HTMLPage webPage)
+        public static void removeDomain(string domainKey)
         {
-            DomainDictionary.Enqueue(webPage.domain.Host, webPage);
-            loadWaitDone.Set();
+            lock (domainDictionary)
+            {
+                domainDictionary.Remove(domainKey);
+            }
         }
     }
 }
