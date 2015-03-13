@@ -115,7 +115,7 @@ namespace WebApplication
 
             CrawlerManager.distributeWorkAmongstCrawlers(page8);
             CrawlerManager.distributeWorkAmongstCrawlers(page9);
-            //CrawlerManager.distributeWorkAmongstCrawlers(page12);
+            CrawlerManager.distributeWorkAmongstCrawlers(page12);
             CrawlerManager.distributeWorkAmongstCrawlers(page14);
             CrawlerManager.distributeWorkAmongstCrawlers(page15);
             CrawlerManager.distributeWorkAmongstCrawlers(page17);
@@ -129,8 +129,8 @@ namespace WebApplication
             CrawlerManager.distributeWorkAmongstCrawlers(page2);
             CrawlerManager.distributeWorkAmongstCrawlers(page3);
             CrawlerManager.distributeWorkAmongstCrawlers(page4);
-            CrawlerManager.distributeWorkAmongstCrawlers(page5);
-            CrawlerManager.distributeWorkAmongstCrawlers(page6);
+            //CrawlerManager.distributeWorkAmongstCrawlers(page5);
+            //CrawlerManager.distributeWorkAmongstCrawlers(page6);
 
             Console.WriteLine("Distributed work to crawlers....");
             //Console.ReadLine();

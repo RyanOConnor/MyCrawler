@@ -38,7 +38,7 @@ namespace WebCrawler
         {
             sendQueue = new BlockingCollection<HTMLPage>();
             IPHostEntry ipHostInfo = Dns.GetHostEntry(Dns.GetHostName());
-            IPAddress ipAddress = IPAddress.Parse("192.168.1.132");
+            IPAddress ipAddress = IPAddress.Parse("192.168.1.103");
             IPEndPoint endPoint = new IPEndPoint(ipAddress, 11000);
 
             Socket server = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);

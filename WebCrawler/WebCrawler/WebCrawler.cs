@@ -20,20 +20,18 @@ namespace WebCrawler
     static class WebCrawler
     {
         public static CrawlerStatus status { get; private set; }
-        private static DomainDictionary workQueue { get; set; }
         private static ManualResetEvent loadWaitDone = new ManualResetEvent(false);
 
         static WebCrawler()
         {
             status = CrawlerStatus.ok;
-            workQueue = new DomainDictionary();
         }
 
         public static void start()
         {
             // Start crawler to accept incoming crawl requests from application
-            Thread mainThread = new Thread(new ThreadStart(loadWebPages));
-            mainThread.Start();
+            //Thread mainThread = new Thread(new ThreadStart(loadWebPages));
+            //mainThread.Start();
         }
 
         public static void sendErrorMessage(CrawlerStatus errorMsg)
@@ -41,7 +39,7 @@ namespace WebCrawler
             // Send application error information
         }
 
-        public static void loadWebPages()
+        /*public static void loadWebPages()
         {
             while(true)
             {
@@ -63,11 +61,11 @@ namespace WebCrawler
 
                 loadWaitDone.Reset();
             }
-        }
+        }*/
 
         public static void enqueueWorkQueue(HTMLPage webPage)
         {
-            workQueue.Enqueue(webPage.domain.Host, webPage);
+            DomainDictionary.Enqueue(webPage.domain.Host, webPage);
             loadWaitDone.Set();
         }
     }

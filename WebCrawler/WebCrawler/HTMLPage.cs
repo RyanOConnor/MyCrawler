@@ -6,13 +6,11 @@ using System.Text;
 using System.Threading.Tasks;
 using System.Net;
 using System.Runtime.Serialization;
-using System.Security.Cryptography;
 using System.Diagnostics;
 using System.IO.Compression;
 using System.IO;
 using HtmlAgilityPack;
 using Fizzler.Systems.HtmlAgilityPack;
-using CsQuery;
 using System.Threading;
 using System.Text.RegularExpressions;
 
@@ -54,6 +52,10 @@ namespace WebCrawler
             }
             catch (Exception ex)
             {
+                Console.ForegroundColor = ConsoleColor.Red;
+                Console.WriteLine(url);
+                Console.ForegroundColor = ConsoleColor.Gray;
+
                 Console.WriteLine(ex.ToString());
                 this.setWaitTime(waitTime + 10000);
                 if (waitTime < 60000)
@@ -63,7 +65,7 @@ namespace WebCrawler
                 else
                 {
                     // NOTIFY APPLICATION
-                    //manualEvent.Set();
+                    manualEvent.Set();
                 }
             }
         }
@@ -171,6 +173,10 @@ namespace WebCrawler
             }
             catch (Exception ex)
             {
+                Console.ForegroundColor = ConsoleColor.Red;
+                Console.WriteLine(url);
+                Console.ForegroundColor = ConsoleColor.Gray;
+
                 Console.WriteLine(ex.ToString());
                 this.setWaitTime(waitTime + 10000);
                 if (waitTime < 60000)

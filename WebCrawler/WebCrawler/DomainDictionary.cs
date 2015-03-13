@@ -7,51 +7,11 @@ using System.Threading;
 
 namespace WebCrawler
 {
-    class DomainDictionary
+    static class DomainDictionary
     {
-        private readonly Dictionary<string, Domain> domainDictionary = new Dictionary<string, Domain>();
-        public int Count { get; private set; }
+        private static Dictionary<string, Domain> domainDictionary = new Dictionary<string, Domain>();
 
-        public HTMLPage Dequeue()
-        {
-            lock (domainDictionary)
-            {
-                int index = 0;                                          
-                List<string> keys = domainDictionary.Keys.ToList();
-
-                // reimplement while loop with Timer class and Timer callback function
-                while (domainDictionary[keys[index]].IsNotAllowedToUpdate())
-                {
-                    if (index == keys.Count - 1)
-                        index = 0;
-                    else
-                        index++;
-                }
-
-                HTMLPage value = domainDictionary[keys[index]].Dequeue();
-
-                if (domainDictionary[keys[index]].Count == 0)
-                {
-                    domainDictionary.Remove(keys[index]);
-                }
-
-                Count = domainDictionary.Count;
-                //printDomains();
-                return value;
-            }
-        }
-
-        public void printDomains()
-        {
-            Console.Clear();
-            foreach(KeyValuePair<string, Domain> pair in domainDictionary)
-            {
-                Console.WriteLine("{0} items - {1}", pair.Value.Count, pair.Key);
-            }
-            
-        }
-
-        public void Enqueue(string key, HTMLPage value)
+        public static void Enqueue(string key, HTMLPage value)
         {
             lock (domainDictionary)
             {
@@ -63,8 +23,16 @@ namespace WebCrawler
                 {
                     domainDictionary[key] = new Domain(key);
                     domainDictionary[key].Enqueue(value);
+                    domainDictionary[key].initTimer();
                 }
-                Count = domainDictionary.Count;
+            }
+        }
+
+        public static void removeDomain(string domainKey)
+        {
+            lock (domainDictionary)
+            {
+                domainDictionary.Remove(domainKey);
             }
         }
     }
@@ -73,9 +41,11 @@ namespace WebCrawler
     {
         private string domainName { get; set; }
         public DateTime lastUpdated { get; private set; }
-        private readonly Queue<HTMLPage> workQueue = new Queue<HTMLPage>();
+        private Queue<HTMLPage> workQueue = new Queue<HTMLPage>();
+        private ManualResetEvent loadPage = new ManualResetEvent(false);
         public int Count { get { return workQueue.Count; } }
-        private readonly int DOMAIN_DELAY_PERIOD = 2000;
+        private Timer timer { get; set; }
+        private const int DOMAIN_DELAY_PERIOD = 2000;
 
         public Domain(string domainName)
         {
@@ -83,25 +53,32 @@ namespace WebCrawler
             lastUpdated = DateTime.Now.AddMilliseconds(-(DOMAIN_DELAY_PERIOD + 1));
         }
 
-        public HTMLPage Dequeue()
+        public void initTimer()
         {
-            lastUpdated = DateTime.Now;
-            return workQueue.Dequeue();
+            timer = new Timer(new TimerCallback(update), null, 0, DOMAIN_DELAY_PERIOD);
         }
 
-        public HTMLPage Peek()
+        public void update(object stateInfo)
         {
-            return workQueue.Peek();
+            if (workQueue.Count != 0)
+            {
+                HTMLPage page = workQueue.Dequeue();
+
+                if (page.waitTime != 0)
+                    ThreadPool.QueueUserWorkItem(new WaitCallback(page.sleepThenUpdate));
+                else
+                    page.beginUpdate();
+            }
+            else
+            {
+                timer.Dispose();
+                DomainDictionary.removeDomain(this.domainName);
+            }
         }
 
         public void Enqueue(HTMLPage page)
         {
             workQueue.Enqueue(page);
-        }
-
-        public bool IsNotAllowedToUpdate()
-        {
-            return (int)(DateTime.Now - lastUpdated).TotalMilliseconds < DOMAIN_DELAY_PERIOD;
         }
     }
 }

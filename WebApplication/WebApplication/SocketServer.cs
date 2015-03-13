@@ -46,7 +46,7 @@ namespace WebApplication
         public static void startListener()
         {
             IPHostEntry ipHostInfo = Dns.GetHostEntry(Dns.GetHostName());
-            IPAddress ipAddress = IPAddress.Parse("192.168.1.132");
+            IPAddress ipAddress = IPAddress.Parse("192.168.1.103");
             IPEndPoint endPoint = new IPEndPoint(ipAddress, 11000);
 
             Console.WriteLine("Local address and port: {0}", endPoint.ToString());
