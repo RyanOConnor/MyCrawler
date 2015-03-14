@@ -6,45 +6,114 @@ using System.Threading.Tasks;
 using System.Net.Sockets;
 using System.Net;
 using System.Threading;
-using System.Web.Script.Serialization;
-using System.Collections.Concurrent;
 using System.Runtime.Serialization.Json;
 using System.IO;
-using System.Diagnostics;
 using HtmlAgilityPack;
 
 namespace WebCrawler
 {
-    public enum CrawlerStatus { ok };
+    public enum CrawlerStatus { STARTING, WAITING, SENDING_DATA, SHUTTING_DOWN };
 
-    static class WebCrawler
+    public class WebCrawler
     {
-        public static CrawlerStatus status { get; private set; }
-        private static Dictionary<string, Domain> domainDictionary { get; set; }
-
-        static WebCrawler()
+        public CrawlerStatus status { get; private set; }
+        private Dictionary<string, Domain> domainDictionary { get; set; }
+        private Queue<HTMLPage> resultQueue { get; set; }
+        private ManualResetEvent waitForShutdown { get; set; }
+        private ManualResetEvent waitForResults { get; set; }
+        private static WebCrawler _instance;
+        public static WebCrawler Instance
         {
-            status = CrawlerStatus.ok;
+            get
+            {
+                if (_instance == null)
+                    _instance = new WebCrawler();
+                return _instance;
+            }
+        }
+        
+        protected WebCrawler()
+        {
+            Initialize();
+            
+        }
+
+        public void Initialize()
+        {
+            status = CrawlerStatus.STARTING;
+            resultQueue = new Queue<HTMLPage>();
+            waitForResults = new ManualResetEvent(false);
+            waitForShutdown = new ManualResetEvent(false);
             domainDictionary = new Dictionary<string, Domain>();
+            SocketServer.Connected += new EventHandler(OnConnection);
+            SocketServer.MessageSubmitted += new EventHandler(OnMessageSent);
+            SocketServer.MessageReceived += new EventHandler<MessageEventArgs>(OnMessageReceived);
         }
 
-        public static void start()
+        public void Start()
         {
-            // Start crawler to accept incoming crawl requests from application
-            //Thread mainThread = new Thread(new ThreadStart(loadWebPages));
-            //mainThread.Start();
+            SocketServer.StartClient();
+            Thread responseProcess = new Thread(SendResults);
+            responseProcess.Start();
+
+            while (status != CrawlerStatus.SHUTTING_DOWN)
+            {
+                waitForShutdown.WaitOne();
+            }
         }
 
-        public static void sendErrorMessage(CrawlerStatus errorMsg)
+        public void OnConnection(object sender, EventArgs args)
         {
-            // Send application error information
+            SocketServer.Send("ready");
         }
 
-        public static void Enqueue(HTMLPage page)
+        public void OnMessageReceived(object sender, MessageEventArgs args)
+        {
+            if(args.Message == "SHUTDOWN")
+            {
+                status = CrawlerStatus.SHUTTING_DOWN;
+                waitForShutdown.Set();
+            }
+            else if(args.Message == "status")
+            {
+                SocketServer.Send(status.ToString());
+            }
+            else
+            {
+                EnqueueWork(DeserializeJSON(args.Message));
+                SocketServer.Send("ready");
+            }
+        }
+
+        public void OnMessageSent(object sender, EventArgs args)
+        {
+            SocketServer.Receive();
+        }
+        public int iterator = 0;
+        public void SendResults()
+        {
+            while(true)
+            {
+                waitForResults.Reset();
+                if (resultQueue.Count == 0)
+                {
+                    status = CrawlerStatus.WAITING;
+                    waitForResults.WaitOne();
+                }
+                else
+                {
+                    status = CrawlerStatus.SENDING_DATA;
+                }
+                HTMLPage page = DequeueResult();
+                SocketServer.Send(SerializeToJSON(page));
+            }
+        }
+
+        public void EnqueueWork(HTMLPage page)
         {
             lock (domainDictionary)
             {
-                string key = page.domain.Host;
+                string key = page.Domain.Host;
                 if (domainDictionary.ContainsKey(key))
                 {
                     domainDictionary[key].Enqueue(page);
@@ -53,16 +122,70 @@ namespace WebCrawler
                 {
                     domainDictionary[key] = new Domain(key);
                     domainDictionary[key].Enqueue(page);
-                    domainDictionary[key].initTimer();
+                    domainDictionary[key].InitTimer();
                 }
             }
         }
 
-        public static void removeDomain(string domainKey)
+        public void RemoveDomain(string domainKey)
         {
             lock (domainDictionary)
             {
                 domainDictionary.Remove(domainKey);
+            }
+        }
+
+        public void EnqueueResult(HTMLPage page)
+        {
+            lock (resultQueue)
+            {
+                resultQueue.Enqueue(page);
+                waitForResults.Set();
+            }
+        }
+
+        public HTMLPage DequeueResult()
+        {
+            lock (resultQueue)
+            {
+                return resultQueue.Dequeue();
+            }
+        }
+
+        private HTMLPage DeserializeJSON(string message)
+        {
+            try
+            {
+                if (message.EndsWith("<EOF>"))
+                {
+                    string token = "<EOF>";
+                    char[] eof = token.ToCharArray();
+                    message = message.TrimEnd(eof);
+                }
+                DataContractJsonSerializer ser = new DataContractJsonSerializer(typeof(HTMLPage));
+                MemoryStream stream = new MemoryStream(Encoding.Unicode.GetBytes(message));
+                return ser.ReadObject(stream) as HTMLPage;
+            }
+            catch(Exception ex)
+            {
+                Console.WriteLine(ex.ToString());
+                throw ex;
+            }
+        }
+
+        private string SerializeToJSON(HTMLPage page)
+        {
+            try
+            {
+                DataContractJsonSerializer ser = new DataContractJsonSerializer(typeof(HTMLPage));
+                MemoryStream stream = new MemoryStream();
+                ser.WriteObject(stream, page);
+                return Encoding.ASCII.GetString(stream.ToArray());
+            }
+            catch(Exception ex)
+            {
+                Console.WriteLine(ex.ToString());
+                throw ex;
             }
         }
     }

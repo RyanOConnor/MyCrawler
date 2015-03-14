@@ -6,7 +6,6 @@ using System.Text;
 using System.Threading.Tasks;
 using System.Net;
 using System.Runtime.Serialization;
-using System.Diagnostics;
 using System.IO.Compression;
 using System.IO;
 using HtmlAgilityPack;
@@ -18,15 +17,16 @@ namespace WebCrawler
 {
     public class ChildPage : HTMLPage
     {
-        private ManualResetEvent manualEvent { get; set; }
+        private ManualResetEvent ManualEvent { get; set; }
+        public HtmlDocument HtmlDoc { get; private set; }
 
         public ChildPage(string url, DateTime timeStamp, ManualResetEvent manualEvent)
             :base(url, timeStamp)
         {
-            this.manualEvent = manualEvent;
+            this.ManualEvent = manualEvent;
         }
 
-        protected override void getResponse(IAsyncResult webRequest)
+        protected override void GetResponse(IAsyncResult webRequest)
         {
             HttpWebRequest request = (HttpWebRequest)webRequest.AsyncState;
             HttpWebResponse response;
@@ -36,36 +36,36 @@ namespace WebCrawler
 
                 if (response.StatusCode == HttpStatusCode.OK)
                 {
-                    string htmlString = decompressHtml(response);
+                    string htmlString = DecompressHtml(response);
 
-                    htmlDoc = new HtmlDocument();
-                    htmlDoc.LoadHtml(htmlString);
+                    HtmlDoc = new HtmlDocument();
+                    HtmlDoc.LoadHtml(htmlString);
 
-                    Console.WriteLine("\n[{0}] - {2}seconds - Loaded {1}", DateTime.Now.TimeOfDay, domain.Host, (DateTime.Now - this.timeStamp).TotalSeconds);
-                    manualEvent.Set();
+                    Console.WriteLine("\n[{0}] - {2}seconds - Loaded {1}", DateTime.Now.TimeOfDay, Domain.Host, (DateTime.Now - this.TimeStamp).TotalSeconds);
+                    ManualEvent.Set();
                 }
                 else
                 {
-                    this.setWaitTime(10000);
-                    WebCrawler.Enqueue(this);
+                    this.SetWaitTime(10000);
+                    WebCrawler.Instance.EnqueueWork(this);
                 }
             }
             catch (Exception ex)
             {
                 Console.ForegroundColor = ConsoleColor.Red;
-                Console.WriteLine(url);
+                Console.WriteLine(Domain.AbsoluteUri);
                 Console.ForegroundColor = ConsoleColor.Gray;
 
                 Console.WriteLine(ex.ToString());
-                this.setWaitTime(waitTime + 10000);
-                if (waitTime < 60000)
+                this.SetWaitTime(WaitTime + 10000);
+                if (WaitTime < 60000)
                 {
-                    WebCrawler.Enqueue(this);
+                    WebCrawler.Instance.EnqueueWork(this);
                 }
                 else
                 {
                     // NOTIFY APPLICATION
-                    manualEvent.Set();
+                    ManualEvent.Set();
                 }
             }
         }
@@ -75,74 +75,72 @@ namespace WebCrawler
     public class HTMLPage
     {
         [DataMember]
-        private string id { get; set; }
+        public string ID { get; private set; }
         [DataMember]
-        public string url { get; private set; }
+        private string URL { get; set; }
         [DataMember]
-        public Uri domain { get; protected set; }
+        public Uri Domain { get; private set; }
         [DataMember]
-        public DateTime timeStamp { get; protected set; }
+        public DateTime TimeStamp { get; private set; }
         [DataMember]
-        private List<string> htmlTags { get; set; }
+        private List<string> HtmlTags { get; set; }
         [DataMember]
-        private List<string> keywords { get; set; }
+        private List<string> Keywords { get; set; }
         [DataMember]
-        private List<string> rankedResults { get; set; }
-        protected HtmlDocument htmlDoc { get; set; }
-        private List<ChildPage> childPages { get; set; }
-        public int waitTime { get; set; }
+        private List<string> rankedResults;
+        public int WaitTime { get; private set; }
 
         public HTMLPage(string url, DateTime timeStamp)
         {
-            this.url = url;
-            this.timeStamp = timeStamp;
-            this.domain = new Uri(url);
+            this.URL = url;
+            this.TimeStamp = timeStamp;
+            this.Domain = new Uri(url);
         }
 
         public HTMLPage(string id, string url, DateTime timeStamp, List<string> tags, List<string> keywords)
         {
-            this.id = id;
-            this.htmlTags = tags;
-            this.keywords = keywords;
-            domain = new Uri(url);
+            this.ID = id;
+            this.HtmlTags = tags;
+            this.Keywords = keywords;
+            Domain = new Uri(url);
         }
 
         [OnDeserialized]
-        private void setUri(StreamingContext context)
+        private void SetUri(StreamingContext context)
         {
-            domain = new Uri(url);
+            Domain = new Uri(URL);
         }
 
-        public void setWaitTime(int milliseconds)
+        public void SetWaitTime(int milliseconds)
         {
-            this.waitTime = milliseconds;
-            this.timeStamp = DateTime.Now;
+            this.WaitTime = milliseconds;
+            this.TimeStamp = DateTime.Now;
         }
 
-        public int millisecondsLeftToWait()
+        public int MillisecondsLeftToWait()
         {
-            return waitTime - (int)((DateTime.Now - this.timeStamp).TotalMilliseconds);
+            return WaitTime - (int)((DateTime.Now - this.TimeStamp).TotalMilliseconds);
         }
 
-        public void sleepThenUpdate(object stateInfo)
+        public void SleepThenUpdate(object stateInfo)
         {
-            if (millisecondsLeftToWait() > 0)
-                Thread.Sleep(millisecondsLeftToWait());
+            if (MillisecondsLeftToWait() > 0)
+                Thread.Sleep(MillisecondsLeftToWait());
 
-            beginUpdate();
+            BeginUpdate();
         }
 
-        public void beginUpdate()
+        public void BeginUpdate()
         {
-            HttpWebRequest request = (HttpWebRequest)HttpWebRequest.Create(domain.AbsoluteUri);
+            HttpWebRequest request = (HttpWebRequest)HttpWebRequest.Create(Domain.AbsoluteUri);
             request.Method = WebRequestMethods.Http.Get;
             request.Headers.Add(HttpRequestHeader.AcceptEncoding, "gzip,deflate");
             request.Proxy = null;
 
-            IAsyncResult response = request.BeginGetResponse(new AsyncCallback(getResponse), request);
+            IAsyncResult response = request.BeginGetResponse(new AsyncCallback(GetResponse), request);
         }
 
-        protected virtual void getResponse(IAsyncResult webRequest)
+        protected virtual void GetResponse(IAsyncResult webRequest)
         {
             HttpWebRequest request = (HttpWebRequest)webRequest.AsyncState;
             HttpWebResponse response;
@@ -152,36 +150,34 @@ namespace WebCrawler
 
                 if (response.StatusCode == HttpStatusCode.OK)
                 {
-                    string html = decompressHtml(response);
+                    string htmlString = DecompressHtml(response);
+                    HashSet<string> results = FilterByTags(htmlString);
 
-                    HashSet<string> results = filterByTags(html);
-
-                    if (keywords.Count != 0)
+                    if (Keywords.Count != 0)
                     {
-                        List<ChildPage> linkedToPages = loadChildPages(results.ToList());
-
-                        rankedResults = filterByKeyWords(linkedToPages);
-
-                        SocketServer.sendHTMLPage(this);
+                        List<ChildPage> linkedToPages = LoadChildPages(results.ToList());
+                        rankedResults = FilterByKeyWords(linkedToPages);
                     }
+
+                    WebCrawler.Instance.EnqueueResult(this);
                 }
                 else
                 {
-                    this.setWaitTime(10000);
-                    WebCrawler.Enqueue(this);
+                    this.SetWaitTime(10000);
+                    WebCrawler.Instance.EnqueueWork(this);
                 }
             }
             catch (Exception ex)
             {
                 Console.ForegroundColor = ConsoleColor.Red;
-                Console.WriteLine(url);
+                Console.WriteLine(URL);
                 Console.ForegroundColor = ConsoleColor.Gray;
 
                 Console.WriteLine(ex.ToString());
-                this.setWaitTime(waitTime + 10000);
-                if (waitTime < 60000)
+                this.SetWaitTime(WaitTime + 10000);
+                if (WaitTime < 60000)
                 {
-                    WebCrawler.Enqueue(this);
+                    WebCrawler.Instance.EnqueueWork(this);
                 }
                 else
                 {
@@ -190,13 +186,13 @@ namespace WebCrawler
             }
         }
 
-        protected string decompressHtml(HttpWebResponse response)
+        protected string DecompressHtml(HttpWebResponse response)
         {
             string decompressedHTML = string.Empty;
-            Encoding encoding = getEncodingFromHeader(response);
+            Encoding encoding = GetEncodingFromHeader(response);
             try
             {
-                using (Stream stream = getResponseStream(response, 10000))
+                using (Stream stream = GetResponseStream(response, 10000))
                 {
                     using (StreamReader reader = new StreamReader(stream, encoding))
                     {
@@ -212,7 +208,7 @@ namespace WebCrawler
             return decompressedHTML;
         }
 
-        protected Stream getResponseStream(HttpWebResponse response, int timeOut)
+        protected Stream GetResponseStream(HttpWebResponse response, int timeOut)
         {
             Stream stream;
             if (response.ContentEncoding.ToLower() == "gzip")
@@ -235,7 +231,7 @@ namespace WebCrawler
             return stream;
         }
 
-        protected Encoding getEncodingFromHeader(HttpWebResponse response)
+        protected Encoding GetEncodingFromHeader(HttpWebResponse response)
         {
             Encoding encoding = Encoding.GetEncoding("ISO-8859-1");
             string charset = string.Empty;
@@ -268,31 +264,31 @@ namespace WebCrawler
             return encoding;
         }
 
-        private HashSet<string> filterByTags(string html)
+        private HashSet<string> FilterByTags(string html)
         {
             // (at application or client level, do not allow "noindex" or "nofollow" tags)
-            htmlDoc = new HtmlDocument();
+            HtmlDocument htmlDoc = new HtmlDocument();
             htmlDoc.LoadHtml(html);
 
-            string query = htmlTags[0];
-            for(int i = 1; i < htmlTags.Count-1; i++)
+            string query = HtmlTags[0];
+            for(int i = 1; i < HtmlTags.Count-1; i++)
             {
-                if(htmlTags[i].ElementAt(0) == '.' || htmlTags[i].ElementAt(0) == '#')
+                if(HtmlTags[i].ElementAt(0) == '.' || HtmlTags[i].ElementAt(0) == '#')
                 {
-                    query += htmlTags[i];
+                    query += HtmlTags[i];
                 }
                 else
                 {
-                    query += ' ' + htmlTags[i];
+                    query += ' ' + HtmlTags[i];
                 }
             }
 
             IEnumerable<string> queryResults = null;
-            if(htmlTags[htmlTags.Count-1] == "href")
+            if(HtmlTags[HtmlTags.Count-1] == "href")
             {
                 queryResults = htmlDoc.DocumentNode.QuerySelectorAll(query).Select(x => x.Attributes["href"].Value);
             }
-            else if(htmlTags[htmlTags.Count-1] == "text")
+            else if(HtmlTags[HtmlTags.Count-1] == "text")
             {
                 queryResults = htmlDoc.DocumentNode.QuerySelectorAll(query).Select(x => x.InnerText).ToList();
             }
@@ -303,93 +299,18 @@ namespace WebCrawler
 
             HashSet<string> links = new HashSet<string>(queryResults);
 
-            return fixUrls(links);
+            return FixUrls(links);
         }
 
-        // Parallelized to leave one core available for HTTP requests
-        private List<string> filterByKeywords2(List<ChildPage> childPages)
-        {
-            Stopwatch sw = new Stopwatch();
-            sw.Start();
-
-            List<Thread> threads = new List<Thread>();
-            List<List<KeyValuePair<string, int>>> segments = new List<List<KeyValuePair<string, int>>>();
-             
-            int segLen = (int)Math.Ceiling((double)childPages.Count / (Environment.ProcessorCount - 1));
-            int mod = childPages.Count % (int)segLen;
-            List<int[]> positions = new List<int[]>();
-
-            for(int i = 0; i < childPages.Count; i += segLen)
-            {
-                Thread thread = null;
-                if(i == childPages.Count - mod)
-                {
-                    int[] pos = new int[2] { i, i + mod };
-                    positions.Add(pos);
-                    thread = new Thread(() => segments.Add(new List<KeyValuePair<string, int>>(doFilterByKeywords(childPages, pos[0], pos[1]))));
-                }
-                else
-                {
-                    int[] pos = new int[2] { i, i + segLen };
-                    positions.Add(pos);
-                    thread = new Thread(() => segments.Add(new List<KeyValuePair<string, int>>(doFilterByKeywords(childPages, pos[0], pos[1]))));
-                }
-                thread.Start();
-                threads.Add(thread);
-            }
-
-            foreach (Thread thread in threads)
-                thread.Join();
-
-            List<KeyValuePair<string, int>> results = new List<KeyValuePair<string, int>>();
-            foreach(List<KeyValuePair<string,int>> segment in segments)
-            {
-                results.AddRange(segment);
-            }
-
-            var sortedList = from entry in results orderby entry.Value descending select entry;
-
-
-            sw.Stop();
-            Console.WriteLine("\nManual Threading: {0}ms", sw.ElapsedMilliseconds);
-
-            return sortedList.Select(x => x.Key).ToList();
-        }
-
-        private List<KeyValuePair<string, int>> doFilterByKeywords(List<ChildPage> childPages, int startPos, int endPos)
-        {
-            List<KeyValuePair<string, int>> results = new List<KeyValuePair<string, int>>();
-
-            for (int i = startPos; i < endPos; i++)
-            {
-                string innerText = childPages[i].htmlDoc.DocumentNode.InnerText.ToLower();
-                int pageScore = 0;
-                foreach(string keyword in keywords)
-                {
-                    if(innerText.Contains(keyword.ToLower()))
-                    {
-                        pageScore += Regex.Matches(innerText, keyword).Count;
-                    }
-                    else
-                    {
-                        continue;
-                    }
-                }
-                results.Add(new KeyValuePair<string, int>(childPages[i].domain.AbsoluteUri, pageScore));
-            }
-
-            return results;
-        }
-
-        private List<string> filterByKeyWords(List<ChildPage> childPages)
+        private List<string> FilterByKeyWords(List<ChildPage> childPages)
         {
             List<KeyValuePair<string, int>> results = new List<KeyValuePair<string, int>>();
 
             foreach(ChildPage page in childPages)
             {
-                string innerText = page.htmlDoc.DocumentNode.InnerText.ToLower();
+                string innerText = page.HtmlDoc.DocumentNode.InnerText.ToLower();
                 int pageScore = 0;
-                foreach (string keyword in keywords)
+                foreach (string keyword in Keywords)
                 {
                     if (innerText.Contains(keyword.ToLower()))
                     {
@@ -400,17 +321,17 @@ namespace WebCrawler
                         continue;
                     }
                 }
-                results.Add(new KeyValuePair<string, int>(page.domain.AbsoluteUri, pageScore));
+                results.Add(new KeyValuePair<string, int>(page.Domain.AbsoluteUri, pageScore));
             }
 
             var sortedList = from entry in results orderby entry.Value descending select entry;
 
-            printRankedPages(sortedList);
+            PrintRankedPages(sortedList);
            
             return sortedList.Select(x => x.Key).ToList();
         }
 
-        private void printRankedPages(IOrderedEnumerable<KeyValuePair<string, int>> pages)
+        private void PrintRankedPages(IOrderedEnumerable<KeyValuePair<string, int>> pages)
         {
             Console.ForegroundColor = ConsoleColor.Yellow;
             foreach (KeyValuePair<string, int> pair in pages)
@@ -420,18 +341,18 @@ namespace WebCrawler
             Console.ForegroundColor = ConsoleColor.Gray;
         }
 
-        private List<ChildPage> loadChildPages(List<string> results)
+        private List<ChildPage> LoadChildPages(List<string> results)
         {
-            childPages = new List<ChildPage>();
+            List<ChildPage> childPages = new List<ChildPage>();
 
             ManualResetEvent signal = new ManualResetEvent(false);
-            Thread parallelWait = new Thread(() => waitForChildPages(signal, results.Count));
+            Thread parallelWait = new Thread(() => WaitForChildPages(signal, results.Count));
             parallelWait.Start();
 
             foreach (string url in results)
             {
                 ChildPage page = new ChildPage(url, DateTime.Now, signal);
-                WebCrawler.Enqueue(page);
+                WebCrawler.Instance.EnqueueWork(page);
                 childPages.Add(page);
             }
 
@@ -440,7 +361,7 @@ namespace WebCrawler
             return childPages;
         }
 
-        private void waitForChildPages(ManualResetEvent signal, int count)
+        private void WaitForChildPages(ManualResetEvent signal, int count)
         {
             int numberOfTasks = count;
 
@@ -452,15 +373,15 @@ namespace WebCrawler
             }
         }
 
-        private HashSet<string> fixUrls(HashSet<string> urls)
+        private HashSet<string> FixUrls(HashSet<string> urls)
         {
-            urls.Remove(domain.AbsoluteUri);
+            urls.Remove(Domain.AbsoluteUri);
 
             HashSet<string> fixedUrlSet = new HashSet<string>();
             foreach(string url in urls)
             {
                 Uri fixedUri;
-                if(Uri.TryCreate(domain, url, out fixedUri))
+                if(Uri.TryCreate(Domain, url, out fixedUri))
                 {
                     fixedUrlSet.Add(fixedUri.AbsoluteUri);
                 }
@@ -470,7 +391,7 @@ namespace WebCrawler
                     Match regx = Regex.Match(url, @"\.[a-z]{2,3}(\.[a-z]{2,3})?");
                     if (!regx.Success)
                     {
-                        fixedUrlSet.Add(domain.Scheme + "://" + domain.Host + url);
+                        fixedUrlSet.Add(Domain.Scheme + "://" + Domain.Host + url);
                     }
                 }
             }
@@ -478,7 +399,7 @@ namespace WebCrawler
             return fixedUrlSet;
         }
 
-        private bool allowedByRobotsTXT()
+        private bool AllowedByRobotsTXT()
         {
             // load robots.txt, parse, if Uri is disallowed then return false
 

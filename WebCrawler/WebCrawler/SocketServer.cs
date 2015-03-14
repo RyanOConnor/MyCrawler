@@ -8,102 +8,63 @@ using System.Net.Sockets;
 using System.Threading;
 using System.Runtime.Serialization.Json;
 using System.IO;
-using System.Collections.Concurrent;
 
 namespace WebCrawler
 {
-    public class SocketHandle
+    public class BufferHandle
     {
-        public Socket socket { get; set; }
         public byte[] buffer { get; set; }
-        public const int bufferSize = 1024;
+        public const int BUFFER_SIZE = 1024;
         public StringBuilder sb { get; set; }
+        public string text { get { return sb.ToString(); } }
 
-        public SocketHandle(Socket clientSocket)
+        public BufferHandle()
         {
-            buffer = new byte[bufferSize];
-            socket = clientSocket;
+            buffer = new byte[BUFFER_SIZE];
             sb = new StringBuilder();
+        }
+
+        public void Reset()
+        {
+            sb.Clear();
+        }
+    }
+
+    public class MessageEventArgs : EventArgs
+    {
+        public string Message { get; set; }
+        public MessageEventArgs(string message)
+        {
+            Message = message;
         }
     }
 
     public static class SocketServer
     {
-        private static BlockingCollection<HTMLPage> sendQueue { get; set; }
-        private static ManualResetEvent connectDone = new ManualResetEvent(false);
-        private static ManualResetEvent sendDone = new ManualResetEvent(false);
-        private static ManualResetEvent receiveDone = new ManualResetEvent(false);
+        private static Socket Server { get; set; }
+        private static ManualResetEvent ConnectDone = new ManualResetEvent(false);
+        private static ManualResetEvent SendDone = new ManualResetEvent(false);
+        private static ManualResetEvent ReceiveDone = new ManualResetEvent(false);
+        public static event EventHandler Connected;
+        public static event EventHandler<MessageEventArgs> MessageReceived;
+        public static event EventHandler MessageSubmitted;
 
-        public static void startClient()
+        public static void StartClient()
         {
-            sendQueue = new BlockingCollection<HTMLPage>();
             IPHostEntry ipHostInfo = Dns.GetHostEntry(Dns.GetHostName());
             IPAddress ipAddress = IPAddress.Parse("192.168.1.132");
             IPEndPoint endPoint = new IPEndPoint(ipAddress, 11000);
 
-            Socket server = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
-
             try
             {
-                server.BeginConnect(endPoint, new AsyncCallback(connectCallBack), server);
-                connectDone.WaitOne();
+                Server = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+                Server.BeginConnect(endPoint, new AsyncCallback(ConnectCallBack), Server);
+                ConnectDone.WaitOne();
 
-                Thread communicate = new Thread(() => communicateLoop(server));
-                communicate.Start();
-            }
-            catch(Exception ex)
-            {
-                Console.WriteLine(ex.ToString());
-            }
-        }
-
-        public static void reconnectToServer()
-        {
-            IPAddress ipAddress = IPAddress.Parse("192.168.1.132");
-            IPEndPoint endPoint = new IPEndPoint(ipAddress, 11000);
-
-            Socket server = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
-            try
-            {
-                server.BeginConnect(endPoint, new AsyncCallback(connectCallBack), server);
-                connectDone.WaitOne();
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine(ex.ToString());
-            }
-        }
-
-        public static void communicateLoop(Socket serverSocket)
-        {
-            SocketHandle server = new SocketHandle(serverSocket);
-
-            try
-            {
-                while (true)
+                EventHandler connectedHandler = Connected;
+                if(connectedHandler != null)
                 {
-                    string message = string.Empty;        // JSON OBJECT ON SENDQUEUE.DEQUEUE
-                    if(sendQueue.Count != 0)
-                    {
-                        message = serializeToJSON(sendQueue.Take());
-                        if(!server.socket.Poll(1, SelectMode.SelectWrite))
-                        {
-                            reconnectToServer();
-                        }
-                    }
-                    else
-                    {
-                        message = "next";
-                    }
-
-                    clientSend(server, message + "<EOF>");
-                    sendDone.WaitOne();
-
-                    receive(server);
-                    receiveDone.WaitOne();
-
-                    server.sb.Clear();
-                    receiveDone.Reset();
+                    connectedHandler(null, EventArgs.Empty);
                 }
             }
             catch(Exception ex)
@@ -112,7 +73,12 @@ namespace WebCrawler
             }
         }
 
-        private static void connectCallBack(IAsyncResult result)
+        public static bool IsConnected()
+        {
+            return Server.Poll(1000, SelectMode.SelectWrite);
+        }
+
+        private static void ConnectCallBack(IAsyncResult result)
         {
             try
             {
@@ -121,7 +87,7 @@ namespace WebCrawler
 
                 Console.WriteLine("Socket connected to {0}", server.RemoteEndPoint.ToString());
 
-                connectDone.Set();
+                ConnectDone.Set();
             }
             catch(Exception ex)
             {
@@ -129,33 +95,13 @@ namespace WebCrawler
             }
         }
 
-        private static void clientSend(SocketHandle serverSocket, string data)
-        {
-            byte[] byteData = Encoding.ASCII.GetBytes(data);
-
-            serverSocket.socket.BeginSend(byteData, 0, byteData.Length, 0, new AsyncCallback(clientSendCallBack), serverSocket);
-        }
-
-        private static void clientSendCallBack(IAsyncResult result)
+        public static void Receive()
         {
             try
             {
-                SocketHandle serverSocket = (SocketHandle)result.AsyncState;
-                int bytesSent = serverSocket.socket.EndSend(result);
-                sendDone.Set();
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine(ex.ToString());
-            }
-        }
-
-        private static void receive(SocketHandle serverHandle)
-        {
-            try
-            {
-                serverHandle.socket.BeginReceive(serverHandle.buffer, 0, SocketHandle.bufferSize, 0, 
-                                                    new AsyncCallback(receiveCallBack), serverHandle);
+                BufferHandle bufferHandle = new BufferHandle();
+                Server.BeginReceive(bufferHandle.buffer, 0, BufferHandle.BUFFER_SIZE, 0,
+                                                    new AsyncCallback(ReceiveCallBack), bufferHandle);
             }
             catch(Exception ex)
             {
@@ -163,38 +109,32 @@ namespace WebCrawler
             }
         }
 
-        private static void receiveCallBack(IAsyncResult result)
+        private static void ReceiveCallBack(IAsyncResult result)
         {
-            string content = string.Empty;
-            SocketHandle socketHandle = (SocketHandle)result.AsyncState;
-
-            int bytesRead = socketHandle.socket.EndReceive(result);
-
+            BufferHandle bufferHandle = (BufferHandle)result.AsyncState;
+            int bytesRead = Server.EndReceive(result);
+            
             try
             {
                 if(bytesRead > 0)
                 {
-                    socketHandle.sb.Append(Encoding.ASCII.GetString(socketHandle.buffer, 0, bytesRead));
-                    content = socketHandle.sb.ToString();
+                    bufferHandle.sb.Append(Encoding.ASCII.GetString(bufferHandle.buffer, 0, bytesRead));
 
-                    if(content.IndexOf("<EOF>") > -1)
+                    if(bufferHandle.text.EndsWith("<EOF>"))
                     {
-                        if (content.StartsWith("next"))
+                        string message = bufferHandle.text.Remove(bufferHandle.text.IndexOf("<EOF"));
+
+                        EventHandler<MessageEventArgs> msgReceived = MessageReceived;
+                        if(msgReceived != null)
                         {
-                            // UNBLOCK MAIN THREAD SO IT CAN SEND 
-                            
+                            msgReceived(null, new MessageEventArgs(message));
                         }
-                        else
-                        {
-                            // PLACE JSON OBJECT INTO WORK QUEUE
-                            WebCrawler.Enqueue(deserializeJSON(content));
-                        }
-                        receiveDone.Set();
+                        ReceiveDone.Set();
                     }
                     else
                     {
-                        socketHandle.socket.BeginReceive(socketHandle.buffer, 0, SocketHandle.bufferSize, 0,
-                                                            new AsyncCallback(receiveCallBack), socketHandle);
+                        Server.BeginReceive(bufferHandle.buffer, 0, BufferHandle.BUFFER_SIZE, 0,
+                                                            new AsyncCallback(ReceiveCallBack), bufferHandle);
                     }
                 }
             }
@@ -204,33 +144,40 @@ namespace WebCrawler
             }
         }
 
-        private static HTMLPage deserializeJSON(string message)
+        public static void Send(string message)
         {
-            if (message.EndsWith("<EOF>"))
+            message += "<EOF>";
+            byte[] byteData = Encoding.ASCII.GetBytes(message);
+
+            if(IsConnected())
             {
-                string token = "<EOF>";
-                char[] eof = token.ToCharArray();
-                message = message.TrimEnd(eof);
+                Server.BeginSend(byteData, 0, byteData.Length, 0, new AsyncCallback(SendCallBack), Server);
             }
-            DataContractJsonSerializer ser = new DataContractJsonSerializer(typeof(HTMLPage));
-            MemoryStream stream = new MemoryStream(Encoding.Unicode.GetBytes(message));
-            return ser.ReadObject(stream) as HTMLPage;
+            else
+            {
+                SocketServer.StartClient();
+                SocketServer.Send(message);
+            }
         }
 
-        private static string serializeToJSON(HTMLPage page)
+        public static void SendCallBack(IAsyncResult result)
         {
-            DataContractJsonSerializer ser = new DataContractJsonSerializer(typeof(HTMLPage));
-            MemoryStream stream = new MemoryStream();
-            ser.WriteObject(stream, page);
-            return Encoding.ASCII.GetString(stream.ToArray());
-        }
+            try
+            {
+                Socket server = (Socket)result.AsyncState;
+                server.EndSend(result);
+            }
+            catch(Exception ex)
+            {
+                Console.WriteLine(ex.ToString());
+            }
 
-        public static void sendHTMLPage(HTMLPage page)
-        {
-            sendQueue.Add(page);
-            receiveDone.Set();
-            Console.WriteLine("Trying to send {0}...", page.domain.AbsoluteUri);
-            Console.ReadLine();
+            EventHandler msgSubmitted = MessageSubmitted;
+            if(msgSubmitted != null)
+            {
+                msgSubmitted(null, EventArgs.Empty);
+            }
+            SendDone.Set();
         }
     }
 }

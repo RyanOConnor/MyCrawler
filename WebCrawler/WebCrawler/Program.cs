@@ -26,8 +26,8 @@ namespace WebCrawler
             //}
             //else
             //{
-                SocketServer.startClient();
-                WebCrawler.start();
+                Thread MainThread = new Thread(WebCrawler.Instance.Start);
+                MainThread.Start();
             //}
 
             //GC.KeepAlive(mutex);

@@ -9,36 +9,37 @@ namespace WebCrawler
 {
     class Domain
     {
-        private string domainName { get; set; }
+        private string DomainName { get; set; }
         private Queue<HTMLPage> workQueue = new Queue<HTMLPage>();
-        private Timer timer { get; set; }
+        private Timer Timer { get; set; }
         private const int DOMAIN_DELAY_PERIOD = 2000;
 
         public Domain(string domainName)
         {
-            this.domainName = domainName;
+            this.DomainName = domainName;
         }
 
-        public void initTimer()
+        public void InitTimer()
         {
-            timer = new Timer(new TimerCallback(update), null, 0, DOMAIN_DELAY_PERIOD);
+            Timer = new Timer(new TimerCallback(Update), null, 0, DOMAIN_DELAY_PERIOD);
         }
-
-        public void update(object stateInfo)
+        
+        public void Update(object stateInfo)
         {
             if (workQueue.Count != 0)
             {
                 HTMLPage page = workQueue.Dequeue();
 
-                if (page.waitTime != 0)
-                    ThreadPool.QueueUserWorkItem(new WaitCallback(page.sleepThenUpdate));
+                if (page.WaitTime != 0)
+                    ThreadPool.QueueUserWorkItem(new WaitCallback(page.SleepThenUpdate));
                 else
-                    page.beginUpdate();
+                    page.BeginUpdate();
             }
             else
             {
-                timer.Dispose();
-                WebCrawler.removeDomain(this.domainName);
+                Timer.Dispose();
+                WebCrawler.Instance.RemoveDomain(this.DomainName);
+                Console.WriteLine(DomainName + " removed");
             }
         }
 
