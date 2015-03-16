@@ -12,6 +12,7 @@ using HtmlAgilityPack;
 using Fizzler.Systems.HtmlAgilityPack;
 using System.Threading;
 using System.Text.RegularExpressions;
+using MongoDB.Bson;
 
 namespace WebCrawler
 {
@@ -50,7 +51,7 @@ namespace WebCrawler
                     WebCrawler.Instance.EnqueueWork(this);
                 }
             }
-            catch (Exception ex)
+            catch (WebException ex)
             {
                 Console.ForegroundColor = ConsoleColor.Red;
                 Console.WriteLine(Domain.AbsoluteUri);
@@ -75,7 +76,7 @@ namespace WebCrawler
     public class HTMLPage
     {
         [DataMember]
-        public string ID { get; private set; }
+        public ObjectId ID { get; private set; }
         [DataMember]
         private string URL { get; set; }
         [DataMember]
@@ -97,7 +98,7 @@ namespace WebCrawler
             this.Domain = new Uri(url);
         }
 
-        public HTMLPage(string id, string url, DateTime timeStamp, List<string> tags, List<string> keywords)
+        public HTMLPage(ObjectId id, string url, DateTime timeStamp, List<string> tags, List<string> keywords)
         {
             this.ID = id;
             this.HtmlTags = tags;
@@ -135,6 +136,8 @@ namespace WebCrawler
             HttpWebRequest request = (HttpWebRequest)HttpWebRequest.Create(Domain.AbsoluteUri);
             request.Method = WebRequestMethods.Http.Get;
             request.Headers.Add(HttpRequestHeader.AcceptEncoding, "gzip,deflate");
+            request.Timeout = 10000;
+            request.KeepAlive = false;
             request.Proxy = null;
 
             IAsyncResult response = request.BeginGetResponse(new AsyncCallback(GetResponse), request);
@@ -167,7 +170,7 @@ namespace WebCrawler
                     WebCrawler.Instance.EnqueueWork(this);
                 }
             }
-            catch (Exception ex)
+            catch (WebException ex)
             {
                 Console.ForegroundColor = ConsoleColor.Red;
                 Console.WriteLine(URL);
@@ -304,30 +307,41 @@ namespace WebCrawler
 
         private List<string> FilterByKeyWords(List<ChildPage> childPages)
         {
-            List<KeyValuePair<string, int>> results = new List<KeyValuePair<string, int>>();
-
-            foreach(ChildPage page in childPages)
+            IOrderedEnumerable<KeyValuePair<string, int>> sortedList = null;
+            try
             {
-                string innerText = page.HtmlDoc.DocumentNode.InnerText.ToLower();
-                int pageScore = 0;
-                foreach (string keyword in Keywords)
+                List<KeyValuePair<string, int>> results = new List<KeyValuePair<string, int>>();
+
+                foreach (ChildPage page in childPages)
                 {
-                    if (innerText.Contains(keyword.ToLower()))
+                    if (page.HtmlDoc != null)
                     {
-                        pageScore += Regex.Matches(innerText, keyword).Count;
-                    }
-                    else
-                    {
-                        continue;
+                        string innerText = page.HtmlDoc.DocumentNode.InnerText.ToLower();
+                        int pageScore = 0;
+                        foreach (string keyword in Keywords)
+                        {
+                            if (innerText.Contains(keyword.ToLower()))
+                            {
+                                pageScore += Regex.Matches(innerText, keyword).Count;
+                            }
+                            else
+                            {
+                                continue;
+                            }
+                        }
+                        results.Add(new KeyValuePair<string, int>(page.Domain.AbsoluteUri, pageScore));
                     }
                 }
-                results.Add(new KeyValuePair<string, int>(page.Domain.AbsoluteUri, pageScore));
+
+                sortedList = from entry in results orderby entry.Value descending select entry;
+
+                PrintRankedPages(sortedList);
+            }
+            catch(Exception ex)
+            {
+                Console.WriteLine(ex.ToString());
             }
 
-            var sortedList = from entry in results orderby entry.Value descending select entry;
-
-            PrintRankedPages(sortedList);
-           
             return sortedList.Select(x => x.Key).ToList();
         }
 

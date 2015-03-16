@@ -35,7 +35,6 @@ namespace WebCrawler
         protected WebCrawler()
         {
             Initialize();
-            
         }
 
         public void Initialize()
@@ -89,10 +88,10 @@ namespace WebCrawler
         {
             SocketServer.Receive();
         }
-        public int iterator = 0;
+
         public void SendResults()
         {
-            while(true)
+            while(status != CrawlerStatus.SHUTTING_DOWN)
             {
                 waitForResults.Reset();
                 if (resultQueue.Count == 0)

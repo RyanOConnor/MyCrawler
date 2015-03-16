@@ -46,7 +46,7 @@ namespace WebApplication
         public static void startListener()
         {
             IPHostEntry ipHostInfo = Dns.GetHostEntry(Dns.GetHostName());
-            IPAddress ipAddress = IPAddress.Parse("192.168.1.103");
+            IPAddress ipAddress = IPAddress.Parse("192.168.1.132");
             IPEndPoint endPoint = new IPEndPoint(ipAddress, 11000);
 
             Console.WriteLine("Local address and port: {0}", endPoint.ToString());
@@ -110,20 +110,19 @@ namespace WebApplication
                     {
                         Console.ForegroundColor = socketHandle.color;
 
-                        if (content.StartsWith("next"))
+                        if (content.StartsWith("ready"))
                         {
                             // SEND NEXT WORK QUEUE ITEM
                             if (CrawlerManager.workAvailable())
                             {
                                 string JSON = CrawlerManager.sendWorkToCrawler();
                                 listenerSend(socketHandle, JSON + "<EOF>");
-                                //Console.WriteLine("Sent: " + JSON);
+                                Console.WriteLine("Sent: " + JSON);
                             }
                             else
                             {
                                 socketHandle.socket.BeginReceive(socketHandle.buffer, 0, SocketHandle.bufferSize, 0,
                                                                      new AsyncCallback(readCallBack), socketHandle);
-                                Console.WriteLine("\nWaiting for data.... ");
                             }
                         }
                         else
@@ -132,11 +131,13 @@ namespace WebApplication
                             string token = "<EOF>";
                             char[] eof = token.ToCharArray();
                             content = content.TrimEnd(eof);
-                            CrawlerManager.relayCrawlerResults(CrawlerManager.deserializeJSON(content));
-                            listenerSend(socketHandle, "next<EOF>");
-                        }
+                            HTMLRecord record = CrawlerManager.deserializeJSON(content);
+                            CrawlerManager.relayCrawlerResults(record);
 
-                        socketHandle.strBuilder.Clear();
+                            Console.WriteLine("Recieved Data from: " + record.URL);
+                            socketHandle.strBuilder.Clear();
+                            listenerSend(socketHandle, "SHUTDOWN<EOF>");
+                        }
                     }
                     else
                     {

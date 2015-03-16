@@ -9,9 +9,25 @@ using System.Runtime.Serialization;
 
 namespace WebApplication
 {
-    public static class DataManager
+    public class DataManager
     {
-        private static Queue<HTMLRecord> writeQueue { get; set; }
+        private static MongoServer Server { get; set; }
+        private static MongoDatabase Database { get; set; }
+        private static MongoCollection Collection { get; set; }
+        private static MongoClient dbClient = new MongoClient();
+        private static Queue<HTMLRecord> writeQueue = new Queue<HTMLRecord>();
+
+        public DataManager()
+        {
+           
+        }
+
+        public static void Start()
+        {
+            Server = dbClient.GetServer();
+            Database = Server.GetDatabase("AppDatabase");
+            Collection = Database.GetCollection<HTMLRecord>("CrawlData");
+        }
 
         public static void createEntry(ObjectId urlid, string url)
         {
@@ -23,22 +39,19 @@ namespace WebApplication
 
         }
 
-        public static List<HTMLRecord> mockDatabase = new List<HTMLRecord>();
         public static void updateEntry(HTMLRecord page)
         {
-            // add page to writeQueue
-            mockDatabase.Add(page);
-            Console.WriteLine("{0} links from {1}", page.rankedResults.Count, page.url);
+            Collection.Save(page);
         }
 
         public static HTMLRecord findUrlById(ObjectId id)
         {
-            return new HTMLRecord("", "", DateTime.Now, new List<string>(),new List<string>());
+            return new HTMLRecord(new ObjectId(), "", DateTime.Now, new List<string>(),new List<string>());
         }
 
         public static HTMLRecord findUrlByUrl(string url)
         {
-            return new HTMLRecord("", "", DateTime.Now, new List<string>(),new List<string>());
+            return new HTMLRecord(new ObjectId(), "", DateTime.Now, new List<string>(), new List<string>());
         }
 
         public static List<HTMLRecord> findMultipleByDateTime(List<DateTime> timeStamps)
@@ -48,34 +61,33 @@ namespace WebApplication
 
         public static HTMLRecord findSingleByDateTime(DateTime timeStamp)
         {
-            return new HTMLRecord("", "", DateTime.Now, new List<string>() ,new List<string>());
+            return new HTMLRecord(new ObjectId(), "", DateTime.Now, new List<string>(), new List<string>());
         }
 
     }
     [DataContract]
     public class HTMLRecord
     {
-        //public ObjectId id { get; private set; }
         [DataMember]
-        public string id { get; private set; }
+        public ObjectId ID { get; private set; }
         [DataMember]
-        public string url { get; private set; }
+        public string URL { get; private set; }
         [DataMember]
-        public DateTime timeStamp { get; private set; }
+        public DateTime TimeStamp { get; private set; }
         [DataMember]
-        public List<string> htmlTags { get; private set; }
+        public List<string> HtmlTags { get; private set; }
         [DataMember]
-        public List<string> keywords { get; private set; }
+        public List<string> Keywords { get; private set; }
         [DataMember]
-        public List<string> rankedResults { get; private set; }
+        public List<string> RankedResults { get; private set; }
 
-        public HTMLRecord(string id, string url, DateTime timeStamp, List<string> tags, List<string> keywords)
+        public HTMLRecord(ObjectId id, string url, DateTime timeStamp, List<string> tags, List<string> keywords)
         {
-            this.id = id;
-            this.url = url;
-            this.timeStamp = timeStamp;
-            this.htmlTags = tags;
-            this.keywords = keywords;
+            this.ID = id;
+            this.URL = url;
+            this.TimeStamp = timeStamp;
+            this.HtmlTags = tags;
+            this.Keywords = keywords;
         }
     }
 }
