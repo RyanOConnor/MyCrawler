@@ -13,19 +13,19 @@ using Fizzler.Systems.HtmlAgilityPack;
 using System.Threading;
 using System.Text.RegularExpressions;
 using MongoDB.Bson;
+using MongoDB.Bson.Serialization.Attributes;
+using MongoDB.Bson.Serialization.Options;
 
 namespace WebCrawler
 {
     public class ChildPage : HTMLPage
     {
-        private ManualResetEvent ManualEvent { get; set; }
         public HtmlDocument HtmlDoc { get; private set; }
+        public event EventHandler<ChildPage> WebPageLoaded;
 
-        public ChildPage(string url, DateTime timeStamp, ManualResetEvent manualEvent)
+        public ChildPage(string url, DateTime timeStamp)
             :base(url, timeStamp)
-        {
-            this.ManualEvent = manualEvent;
-        }
+        {  }
 
         protected override void GetResponse(IAsyncResult webRequest)
         {
@@ -42,14 +42,15 @@ namespace WebCrawler
                     HtmlDoc = new HtmlDocument();
                     HtmlDoc.LoadHtml(htmlString);
 
-                    Console.WriteLine("\n[{0}] - {2}seconds - Loaded {1}", DateTime.Now.TimeOfDay, Domain.Host, (DateTime.Now - this.TimeStamp).TotalSeconds);
-                    ManualEvent.Set();
+                    Console.WriteLine("\n[{0}] - {2}seconds - Loaded {1}", DateTime.Now.TimeOfDay, Domain.AbsoluteUri, (DateTime.Now - this.TimeStamp).TotalSeconds);
+
+                    EventHandler<ChildPage> webPageLoaded = this.WebPageLoaded;
+                    if(webPageLoaded != null)
+                    {
+                        webPageLoaded(null, this);
+                    }
                 }
-                else
-                {
-                    this.SetWaitTime(10000);
-                    WebCrawler.Instance.EnqueueWork(this);
-                }
+
             }
             catch (WebException ex)
             {
@@ -66,7 +67,11 @@ namespace WebCrawler
                 else
                 {
                     // NOTIFY APPLICATION
-                    ManualEvent.Set();
+                    EventHandler<ChildPage> webPageLoaded = this.WebPageLoaded;
+                    if (webPageLoaded != null)
+                    {
+                        webPageLoaded(null, this);
+                    }
                 }
             }
         }
@@ -76,7 +81,7 @@ namespace WebCrawler
     public class HTMLPage
     {
         [DataMember]
-        public ObjectId ID { get; private set; }
+        public ObjectId Id { get; private set; }
         [DataMember]
         private string URL { get; set; }
         [DataMember]
@@ -87,9 +92,11 @@ namespace WebCrawler
         private List<string> HtmlTags { get; set; }
         [DataMember]
         private List<string> Keywords { get; set; }
-        [DataMember]
-        private List<string> rankedResults;
+        [DataMember][BsonDictionaryOptions(DictionaryRepresentation.ArrayOfDocuments)]
+        private Dictionary<string, int> RankedResults { get; set; }
         public int WaitTime { get; private set; }
+        private List<ChildPage> ChildPages { get; set; }
+        private ManualResetEvent WaitForpages;
 
         public HTMLPage(string url, DateTime timeStamp)
         {
@@ -98,18 +105,12 @@ namespace WebCrawler
             this.Domain = new Uri(url);
         }
 
-        public HTMLPage(ObjectId id, string url, DateTime timeStamp, List<string> tags, List<string> keywords)
-        {
-            this.ID = id;
-            this.HtmlTags = tags;
-            this.Keywords = keywords;
-            Domain = new Uri(url);
-        }
-
         [OnDeserialized]
-        private void SetUri(StreamingContext context)
+        private void Initialize(StreamingContext context)
         {
             Domain = new Uri(URL);
+            ChildPages = new List<ChildPage>();
+            WaitForpages = new ManualResetEvent(false);
         }
 
         public void SetWaitTime(int milliseconds)
@@ -158,8 +159,8 @@ namespace WebCrawler
 
                     if (Keywords.Count != 0)
                     {
-                        List<ChildPage> linkedToPages = LoadChildPages(results.ToList());
-                        rankedResults = FilterByKeyWords(linkedToPages);
+                        LoadChildPages(results.ToList());
+                        RankedResults = FilterByKeyWords(ChildPages);
                     }
 
                     WebCrawler.Instance.EnqueueResult(this);
@@ -186,6 +187,35 @@ namespace WebCrawler
                 {
                     // NOTIFY APPLICATION
                 }
+            }
+        }
+
+        private List<ChildPage> LoadChildPages(List<string> results)
+        {
+            ChildPages = new List<ChildPage>();
+
+            foreach (string url in results)
+            {
+                ChildPage page = new ChildPage(url, DateTime.Now);
+                page.WebPageLoaded += new EventHandler<ChildPage>(OnWebPageLoaded);
+                WebCrawler.Instance.EnqueueWork(page);
+            }
+
+            while (ChildPages.Count != results.Count)
+            {
+                WaitForpages.Reset();
+                WaitForpages.WaitOne();
+            }
+
+            return ChildPages;
+        }
+
+        private void OnWebPageLoaded(object sender, ChildPage page)
+        {
+            lock (ChildPages)
+            {
+                ChildPages.Add(page);
+                WaitForpages.Set();
             }
         }
 
@@ -305,7 +335,7 @@ namespace WebCrawler
             return FixUrls(links);
         }
 
-        private List<string> FilterByKeyWords(List<ChildPage> childPages)
+        private Dictionary<string, int> FilterByKeyWords(List<ChildPage> childPages)
         {
             IOrderedEnumerable<KeyValuePair<string, int>> sortedList = null;
             try
@@ -342,7 +372,7 @@ namespace WebCrawler
                 Console.WriteLine(ex.ToString());
             }
 
-            return sortedList.Select(x => x.Key).ToList();
+            return sortedList.ToDictionary(pair => pair.Key, pair => pair.Value);
         }
 
         private void PrintRankedPages(IOrderedEnumerable<KeyValuePair<string, int>> pages)
@@ -353,38 +383,6 @@ namespace WebCrawler
                 Console.WriteLine("[PageScore]: {0} \t [Page]: {1}", pair.Value, pair.Key);
             }
             Console.ForegroundColor = ConsoleColor.Gray;
-        }
-
-        private List<ChildPage> LoadChildPages(List<string> results)
-        {
-            List<ChildPage> childPages = new List<ChildPage>();
-
-            ManualResetEvent signal = new ManualResetEvent(false);
-            Thread parallelWait = new Thread(() => WaitForChildPages(signal, results.Count));
-            parallelWait.Start();
-
-            foreach (string url in results)
-            {
-                ChildPage page = new ChildPage(url, DateTime.Now, signal);
-                WebCrawler.Instance.EnqueueWork(page);
-                childPages.Add(page);
-            }
-
-            parallelWait.Join();
-
-            return childPages;
-        }
-
-        private void WaitForChildPages(ManualResetEvent signal, int count)
-        {
-            int numberOfTasks = count;
-
-            while (numberOfTasks != 0)
-            {
-                signal.WaitOne();
-                numberOfTasks--;
-                signal.Reset();
-            }
         }
 
         private HashSet<string> FixUrls(HashSet<string> urls)

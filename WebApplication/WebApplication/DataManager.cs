@@ -3,87 +3,177 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
-using MongoDB.Bson;
-using MongoDB.Driver;
+using System.Threading;
 using System.Runtime.Serialization;
+using MongoDB.Bson;
+using MongoDB.Bson.Serialization.Attributes;
+using MongoDB.Bson.Serialization.Options;
+using MongoDB.Driver;
+using MongoDB.Driver.Builders;
 
 namespace WebApplication
 {
     public class DataManager
     {
-        private static MongoServer Server { get; set; }
-        private static MongoDatabase Database { get; set; }
-        private static MongoCollection Collection { get; set; }
-        private static MongoClient dbClient = new MongoClient();
-        private static Queue<HTMLRecord> writeQueue = new Queue<HTMLRecord>();
+        private MongoServer Server { get; set; }
+        private MongoDatabase Database { get; set; }
+        private MongoCollection<HTMLRecord> Collection { get; set; }
+        private MongoClient dbClient { get; set; }
+        private Queue<HTMLRecord> writeQueue = new Queue<HTMLRecord>();
+        private PriorityQueue<DateTime, ObjectId> jobSchedule = new PriorityQueue<DateTime, ObjectId>();
+        private ManualResetEvent processJobs = new ManualResetEvent(false);
+        public const int UPDATE_FREQUENCY = 4;
+        private static DataManager _instance;
+        public static DataManager Instance
+        {
+            get
+            {
+                if (_instance == null)
+                    _instance = new DataManager();
+                return _instance;
+            }
+        }
 
         public DataManager()
         {
-           
+            CrawlerManager.UpdateReceived += new EventHandler<HTMLRecord>(UpdateEntry);
         }
 
-        public static void Start()
+        public void Start()
         {
+            dbClient = new MongoClient();
             Server = dbClient.GetServer();
-            Database = Server.GetDatabase("AppDatabase");
-            Collection = Database.GetCollection<HTMLRecord>("CrawlData");
+            Database = Server.GetDatabase("CrawlData");
+            Collection = Database.GetCollection<HTMLRecord>("PageQueue");
+            
+            LoadJobSchedule();
+            Thread scheduler = new Thread(ScheduleJobs);
+            scheduler.Start();
         }
 
-        public static void createEntry(ObjectId urlid, string url)
+        private void LoadJobSchedule()
+        {
+            lock (jobSchedule)
+            {
+                MongoCursor<HTMLRecord> records = Collection.FindAll();
+                foreach (HTMLRecord record in records)
+                {
+                    EnqueueJobSchedule(record);
+                }
+            }
+        }
+
+        private void ScheduleJobs()
+        {
+            while(true)
+            {
+                if(jobSchedule.Count == 0)
+                {
+                    processJobs.WaitOne();
+                }
+
+                KeyValuePair<DateTime, ObjectId> job = DequeueJobSchedule();
+
+                if (job.Key > DateTime.UtcNow)
+                {
+                    double ms = (job.Key - DateTime.UtcNow).TotalMilliseconds;
+                    Thread.Sleep((int)(job.Key - DateTime.UtcNow).TotalMilliseconds);
+                }
+
+                HTMLRecord record = RetrieveEntry(job.Value);
+                CrawlerManager.Instance.DistributeWork(record);
+                processJobs.Reset();
+            }
+        }
+
+        public void CreateEntry(ObjectId urlid, string url)
         {
 
         }
 
-        public static void modifyEntry(ObjectId urlid, object changes)
+        public void ModifyEntry(ObjectId urlid, object changes)
         {
 
         }
 
-        public static void updateEntry(HTMLRecord page)
+        public HTMLRecord RetrieveEntry(ObjectId id)
         {
-            Collection.Save(page);
+            var queryId = Query.EQ("_id", id);
+            var entity = Collection.FindOne(queryId);
+            return entity;
         }
 
-        public static HTMLRecord findUrlById(ObjectId id)
+        public void UpdateEntry(object sender, HTMLRecord page)
         {
-            return new HTMLRecord(new ObjectId(), "", DateTime.Now, new List<string>(),new List<string>());
+            try
+            {
+                page.TimeStamp = DateTime.UtcNow.AddMinutes(UPDATE_FREQUENCY);
+                EnqueueJobSchedule(page);
+                Collection.Save(page);
+            }
+            catch(Exception ex)
+            {
+                Console.WriteLine(ex.ToString());
+            }
         }
 
-        public static HTMLRecord findUrlByUrl(string url)
+        public HTMLRecord findUrlById(ObjectId id)
         {
-            return new HTMLRecord(new ObjectId(), "", DateTime.Now, new List<string>(), new List<string>());
+            return new HTMLRecord("", DateTime.Now, new List<string>(),new List<string>());
         }
 
-        public static List<HTMLRecord> findMultipleByDateTime(List<DateTime> timeStamps)
+        public HTMLRecord findUrlByUrl(string url)
+        {
+            return new HTMLRecord( "", DateTime.Now, new List<string>(), new List<string>());
+        }
+
+        public List<HTMLRecord> findMultipleByDateTime(List<DateTime> timeStamps)
         {
             return new List<HTMLRecord>();
         }
 
-        public static HTMLRecord findSingleByDateTime(DateTime timeStamp)
+        public HTMLRecord findSingleByDateTime(DateTime timeStamp)
         {
-            return new HTMLRecord(new ObjectId(), "", DateTime.Now, new List<string>(), new List<string>());
+            return new HTMLRecord( "", DateTime.Now, new List<string>(), new List<string>());
         }
 
+        public void EnqueueJobSchedule(HTMLRecord record)
+        {
+            lock(jobSchedule)
+            {
+                jobSchedule.Enqueue(record.TimeStamp, record.Id);
+                processJobs.Set();
+            }
+        }
+
+        public KeyValuePair<DateTime, ObjectId> DequeueJobSchedule()
+        {
+            lock(jobSchedule)
+            {
+                return jobSchedule.Dequeue();
+            }
+        }
     }
+
+    
     [DataContract]
     public class HTMLRecord
     {
         [DataMember]
-        public ObjectId ID { get; private set; }
+        public ObjectId Id { get; set; }
         [DataMember]
-        public string URL { get; private set; }
+        public string URL { get; set; }
         [DataMember]
-        public DateTime TimeStamp { get; private set; }
+        public DateTime TimeStamp { get; set; }
         [DataMember]
-        public List<string> HtmlTags { get; private set; }
+        public List<string> HtmlTags { get; set; }
         [DataMember]
-        public List<string> Keywords { get; private set; }
-        [DataMember]
-        public List<string> RankedResults { get; private set; }
+        public List<string> Keywords { get; set; }
+        [DataMember][BsonDictionaryOptions(DictionaryRepresentation.ArrayOfDocuments)]
+        public Dictionary<string, int> RankedResults { get; set; }
 
-        public HTMLRecord(ObjectId id, string url, DateTime timeStamp, List<string> tags, List<string> keywords)
+        public HTMLRecord(string url, DateTime timeStamp, List<string> tags, List<string> keywords)
         {
-            this.ID = id;
             this.URL = url;
             this.TimeStamp = timeStamp;
             this.HtmlTags = tags;

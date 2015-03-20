@@ -39,7 +39,6 @@ namespace WebCrawler
             {
                 Timer.Dispose();
                 WebCrawler.Instance.RemoveDomain(this.DomainName);
-                Console.WriteLine(DomainName + " removed");
             }
         }
 

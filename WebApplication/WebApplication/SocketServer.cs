@@ -6,6 +6,8 @@ using System.Threading.Tasks;
 using System.Net;
 using System.Net.Sockets;
 using System.Threading;
+using System.IO;
+using System.Runtime.Serialization.Json;
 
 namespace WebApplication
 {
@@ -13,37 +15,67 @@ namespace WebApplication
     {
         public Socket socket { get; set; }
         public byte[] buffer { get; set; }
-        public const int bufferSize = 1024;
-        public StringBuilder strBuilder { get; set; }
+        public const int BUFFER_SIZE = 1024;
+        private StringBuilder strBuilder;
+        public StringBuilder str 
+        { 
+            get
+            {
+                lock(this.strBuilder)
+                {
+                    return this.strBuilder;
+                }
+            }
+            set
+            {
+                lock(this.strBuilder)
+                {
+                    this.strBuilder = value;
+                }
+            }
+        }
 
         public ConsoleColor color { get; set; }
-        public int consoleColorInt { get; set; }
 
-        public SocketHandle(Socket clientSocket, ConsoleColor color, int colorInt)
+        public SocketHandle(Socket socket, ConsoleColor color)
         {
-            buffer = new byte[bufferSize];
-            socket = clientSocket;
+            this.socket = socket;
+            buffer = new byte[BUFFER_SIZE];
             strBuilder = new StringBuilder();
             this.color = color;
-            this.consoleColorInt = colorInt;
+        }
+
+        public void Reset()
+        {
+            this.strBuilder = new StringBuilder();
+        }
+    }
+
+    public class MessageEventArgs : EventArgs
+    {
+        public string Message { get; set; }
+        public MessageEventArgs(string message)
+        {
+            this.Message = message;
         }
     }
 
     public class SocketServer
     {
-        private static ManualResetEvent listenerSignal = new ManualResetEvent(false);
-        private static ManualResetEvent connectDone = new ManualResetEvent(false);
-        private static ManualResetEvent sendDone = new ManualResetEvent(false);
-        private static ManualResetEvent receiveDone = new ManualResetEvent(false);
-        private static string response = string.Empty;
+        private Dictionary<IPEndPoint, SocketHandle> clients = new Dictionary<IPEndPoint, SocketHandle>();
+        protected ManualResetEvent listenerSignal = new ManualResetEvent(false);
+        protected ManualResetEvent connectDone = new ManualResetEvent(false);
+        protected ManualResetEvent sendDone = new ManualResetEvent(false);
+        protected ManualResetEvent receiveDone = new ManualResetEvent(false);
+        public event EventHandler<MessageEventArgs> MessageReceived;
 
-        private static int colorInt = 0;
-        private static ConsoleColor[] nodeColors = new ConsoleColor[] { ConsoleColor.Cyan, ConsoleColor.Yellow, 
+        protected int colorInt = 0;
+        protected ConsoleColor[] nodeColors = new ConsoleColor[] { ConsoleColor.Cyan, ConsoleColor.Yellow, 
                                                                         ConsoleColor.Red, ConsoleColor.Blue, 
                                                                         ConsoleColor.Green, ConsoleColor.Magenta,
                                                                         ConsoleColor.White, ConsoleColor.Gray};
 
-        public static void startListener()
+        public void StartListener()
         {
             IPHostEntry ipHostInfo = Dns.GetHostEntry(Dns.GetHostName());
             IPAddress ipAddress = IPAddress.Parse("192.168.1.132");
@@ -63,7 +95,7 @@ namespace WebApplication
                     listenerSignal.Reset();
 
                     Console.WriteLine("Waiting for connection...");
-                    listener.BeginAccept(new AsyncCallback(acceptCallBack), listener);
+                    listener.BeginAccept(new AsyncCallback(ConnectCallBack), listener);
 
                     listenerSignal.WaitOne();
 
@@ -71,78 +103,72 @@ namespace WebApplication
                     colorInt++;
                 }
             }
-            catch(Exception ex)
+            catch(SocketException ex)
             {
                 Console.WriteLine(ex.ToString());
             }
-            Console.WriteLine("Closing the listener. Hit enter to continue...");
-            Console.Read();
         }
 
-        public static void acceptCallBack(IAsyncResult result)
+        protected virtual void ConnectCallBack(IAsyncResult result)
         {
             listenerSignal.Set();
 
-            Socket listener = (Socket)result.AsyncState;
-            Socket handler = listener.EndAccept(result);
+            try
+            {
+                Socket listener = (Socket)result.AsyncState;
+                Socket handler = listener.EndAccept(result);
+                SocketHandle socketHandle;
 
-            SocketHandle socketHandle = new SocketHandle(handler, nodeColors[colorInt], colorInt);
-            handler.BeginReceive(socketHandle.buffer, 0, SocketHandle.bufferSize, 0, 
-                                    new AsyncCallback(readCallBack), socketHandle);
-            Console.WriteLine();
+                lock(this.clients)
+                {
+                    socketHandle = new SocketHandle(handler, nodeColors[colorInt]);
+                    clients.Add((IPEndPoint)socketHandle.socket.LocalEndPoint, socketHandle);
+                }
+
+                socketHandle.socket.BeginReceive(socketHandle.buffer, 0, SocketHandle.BUFFER_SIZE, 0,
+                                                    new AsyncCallback(ReceiveCallBack), socketHandle);
+            }
+            catch(SocketException ex)
+            {
+                Console.WriteLine(ex.ToString());
+            }
         }
 
-        public static void readCallBack(IAsyncResult result)
+        protected void Recieve(SocketHandle handle)
         {
-            string content = string.Empty;
-            SocketHandle socketHandle = (SocketHandle)result.AsyncState;
+            handle.socket.BeginReceive(handle.buffer, 0, SocketHandle.BUFFER_SIZE, 0,
+                                        new AsyncCallback(ReceiveCallBack), handle);
+        }
 
+        protected void ReceiveCallBack(IAsyncResult result)
+        {
+            SocketHandle socketHandle = (SocketHandle)result.AsyncState;
             int bytesRead = socketHandle.socket.EndReceive(result);
+            string content = string.Empty;
 
             try
             {
                 if (bytesRead > 0)
                 {
-                    socketHandle.strBuilder.Append(Encoding.ASCII.GetString(socketHandle.buffer, 0, bytesRead));
-                    content = socketHandle.strBuilder.ToString();
+                    socketHandle.str.Append(Encoding.UTF8.GetString(socketHandle.buffer, 0, bytesRead));
+                    content = socketHandle.str.ToString();
 
-                    if (content.IndexOf("<EOF>") > -1)
+                    if (content.EndsWith("<EOF>"))
                     {
-                        Console.ForegroundColor = socketHandle.color;
+                        string message = content.Remove(content.IndexOf("<EOF>"));
+                        Console.WriteLine("\nRecieved: " + message);
 
-                        if (content.StartsWith("ready"))
+                        EventHandler<MessageEventArgs> messageReceived = this.MessageReceived;
+                        if (messageReceived != null)
                         {
-                            // SEND NEXT WORK QUEUE ITEM
-                            if (CrawlerManager.workAvailable())
-                            {
-                                string JSON = CrawlerManager.sendWorkToCrawler();
-                                listenerSend(socketHandle, JSON + "<EOF>");
-                                Console.WriteLine("Sent: " + JSON);
-                            }
-                            else
-                            {
-                                socketHandle.socket.BeginReceive(socketHandle.buffer, 0, SocketHandle.bufferSize, 0,
-                                                                     new AsyncCallback(readCallBack), socketHandle);
-                            }
+                            messageReceived(socketHandle, new MessageEventArgs(message));
                         }
-                        else
-                        {
-                            // RELAY JSON STRING TO DATABASE
-                            string token = "<EOF>";
-                            char[] eof = token.ToCharArray();
-                            content = content.TrimEnd(eof);
-                            HTMLRecord record = CrawlerManager.deserializeJSON(content);
-                            CrawlerManager.relayCrawlerResults(record);
-
-                            Console.WriteLine("Recieved Data from: " + record.URL);
-                            socketHandle.strBuilder.Clear();
-                            listenerSend(socketHandle, "SHUTDOWN<EOF>");
-                        }
+                        socketHandle.Reset();
                     }
                     else
                     {
-                        socketHandle.socket.BeginReceive(socketHandle.buffer, 0, SocketHandle.bufferSize, 0,
-                                                            new AsyncCallback(readCallBack), socketHandle);
+                        socketHandle.socket.BeginReceive(socketHandle.buffer, 0, SocketHandle.BUFFER_SIZE, 0,
+                                        new AsyncCallback(ReceiveCallBack), socketHandle);
                     }
                 }
             }
@@ -152,26 +178,69 @@ namespace WebApplication
             }
         }
 
-        private static void listenerSend(SocketHandle handler, string data)
+        public bool IsConnected(SocketHandle handle)
         {
-            byte[] byteData = Encoding.ASCII.GetBytes(data);
-
-            handler.socket.BeginSend(byteData, 0, byteData.Length, 0, new AsyncCallback(listenerSendCallBack), handler);
+            return handle.socket.Poll(1000, SelectMode.SelectWrite);
         }
 
-        private static void listenerSendCallBack(IAsyncResult result)
+        public void Send(SocketHandle handle, string data)
+        {
+            data += "<EOF>";
+            byte[] byteData = Encoding.UTF8.GetBytes(data);
+
+            if (IsConnected(handle))
+            {
+                handle.socket.BeginSend(byteData, 0, byteData.Length, 0, new AsyncCallback(SendCallBack), handle);
+                Console.WriteLine(this.ToString() + " Sent: \n" + data);
+            }
+            else
+            {
+                throw new Exception("Couldn't Connect to node/client");
+            }
+        }
+
+        private void SendCallBack(IAsyncResult result)
         {
             try
             {
                 SocketHandle socketHandle = (SocketHandle)result.AsyncState;
 
                 int bytesSent = socketHandle.socket.EndSend(result);
-                socketHandle.socket.BeginReceive(socketHandle.buffer, 0, SocketHandle.bufferSize, 0,
-                                    new AsyncCallback(readCallBack), socketHandle);
             }
             catch (Exception ex)
             {
                 Console.WriteLine(ex.ToString());
+            }
+        }
+
+        public string SerializeToJSON(object obj, Type type)
+        {
+            try
+            {
+                DataContractJsonSerializer ser = new DataContractJsonSerializer(type);
+                MemoryStream stream = new MemoryStream();
+                ser.WriteObject(stream, obj);
+                return Encoding.UTF8.GetString(stream.ToArray());
+            }
+            catch(Exception ex)
+            {
+                Console.WriteLine(ex.ToString());
+                throw ex;
+            }
+        }
+
+        public object DeserializeJSON(string message, Type type)
+        {
+            try
+            {
+                DataContractJsonSerializer ser = new DataContractJsonSerializer(type);
+                MemoryStream stream = new MemoryStream(Encoding.UTF8.GetBytes(message));
+                return ser.ReadObject(stream) as object;
+            }
+            catch(Exception ex)
+            {
+                Console.WriteLine(ex.ToString());
+                throw ex;
             }
         }
     }

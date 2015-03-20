@@ -14,64 +14,116 @@ using System.Diagnostics;
 
 namespace WebApplication
 {
-    public static class CrawlerManager
+    public enum CrawlerStatus { STARTING, WAITING, SENDING_DATA, SHUTTING_DOWN };
+    public class CrawlerManager : SocketServer
     {
-        private static BlockingCollection<HTMLRecord> sendQueue { get; set; }
-        private static BlockingCollection<HTMLRecord> workQueue { get; set; }
-        private static List<CrawlerNode> workerNodes { get; set; }
-        private static Socket crawlerSocket { get; set; }
+        private BlockingCollection<HTMLRecord> sendQueue { get; set; }
+        private Dictionary<IPEndPoint, CrawlerNode> crawlerNodes { get; set; }
+        private HashSet<IPEndPoint> nodeIPAddresses { get; set; }
+        public static event EventHandler<HTMLRecord> UpdateReceived;
+        private static CrawlerManager _instance;
+        public static CrawlerManager Instance
+        {
+            get
+            {
+                if (_instance == null)
+                    _instance = new CrawlerManager();
+                return _instance;
+            }
+        }
 
-        static CrawlerManager()
+        public CrawlerManager()
         {
             sendQueue = new BlockingCollection<HTMLRecord>();
-            workQueue = new BlockingCollection<HTMLRecord>();
-            workerNodes = new List<CrawlerNode>();
+            crawlerNodes = new Dictionary<IPEndPoint, CrawlerNode>();
+            nodeIPAddresses = new HashSet<IPEndPoint>();
+            this.MessageReceived += new EventHandler<MessageEventArgs>(OnMessageReceived);
         }
 
-        public static string sendWorkToCrawler()
+        public void AllowCrawlerIP(IPEndPoint endPoint)
         {
-            DataContractJsonSerializer ser = new DataContractJsonSerializer(typeof(HTMLRecord));
-            MemoryStream stream = new MemoryStream();
-            HTMLRecord record = workQueue.Take();       // Block here and wait for work
-
-            ser.WriteObject(stream, record);
-            return Encoding.ASCII.GetString(stream.ToArray());
+            lock(nodeIPAddresses)
+            {
+                if (!nodeIPAddresses.Contains(endPoint))
+                    nodeIPAddresses.Add(endPoint);
+            }
         }
 
-        public static bool workAvailable()
+        protected override void ConnectCallBack(IAsyncResult result)
         {
-            return workQueue.Count > 0;
+            listenerSignal.Set();
+
+            try
+            {
+                Socket listener = (Socket)result.AsyncState;
+                Socket handler = listener.EndAccept(result);
+                CrawlerNode node;
+
+                if (nodeIPAddresses.Contains(handler.LocalEndPoint))
+                {
+                    node = new CrawlerNode(handler);
+                    crawlerNodes.Add((IPEndPoint)node.socket.LocalEndPoint, node);
+                    node.Start();
+                    node.socket.BeginReceive(node.buffer, 0, CrawlerNode.BUFFER_SIZE, 0,
+                                                new AsyncCallback(ReceiveCallBack), node);
+                }
+                else
+                {
+                    throw new Exception("Invalid IP attempting to connect");
+                }
+            }
+            catch(SocketException ex)
+            {
+                Console.WriteLine(ex.ToString());
+            }
         }
 
-        public static HTMLRecord deserializeJSON(string message)
-        { 
-            DataContractJsonSerializer ser = new DataContractJsonSerializer(typeof(HTMLRecord));
-            MemoryStream stream = new MemoryStream(Encoding.Unicode.GetBytes(message));
-            return ser.ReadObject(stream) as HTMLRecord;
-        }
-
-        public static void distributeWorkAmongstCrawlers(HTMLRecord record)
+        public void OnMessageReceived(object sender, MessageEventArgs args)
         {
-            workQueue.Add(record);
+            try
+            {
+                CrawlerNode node = (CrawlerNode)sender;
+
+                if (args.Message == "ready")
+                {
+                    node.AllowSend();
+                    CrawlerManager.Instance.Recieve(node);
+                }
+                else
+                {
+                    HTMLRecord record = (HTMLRecord)DeserializeJSON(args.Message, typeof(HTMLRecord));
+
+                    EventHandler<HTMLRecord> updateReceived = UpdateReceived;
+                    if (updateReceived != null)
+                    {
+                        updateReceived(null, record);
+                    }
+
+                    Console.WriteLine("Recieved Data from: \n" + record.URL);
+                    node.Reset();
+                    Instance.Recieve(node);
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine(ex.ToString());
+            }
         }
 
-        /*public static void distributeWorkAmongstCrawlers(HTMLRecord page)
+        public void DistributeWork(HTMLRecord page)
         {
-            CrawlerNode node = workerNodes.OrderByDescending(x => x.workQueue.Count).First();
-            node.addWork(page);
-        }*/
-
-        public static void relayCrawlerResults(HTMLRecord page)
-        {
-            DataManager.updateEntry(page);
+            while (crawlerNodes.Count == 0) ;
+            CrawlerNode node = crawlerNodes.OrderByDescending(x => x.Value.workQueue.Count).First().Value;
+            node.AddWork(page);
         }
 
-        public static void getCrawlerStatus()
+
+        public void getCrawlerStatus()
         {
             
         }
 
-        public static void enqueue(HTMLRecord page)
+        public void Enqueue(HTMLRecord page)
         {
             sendQueue.Add(page);
         }
@@ -80,18 +132,63 @@ namespace WebApplication
     class CrawlerNode : SocketHandle
     {
         public string crawlerStatus { get; set; }
-        public BlockingCollection<HTMLRecord> workQueue { get; set; }
+        public ConcurrentQueue<HTMLRecord> workQueue { get; set; }
+        public ManualResetEvent waitForJob = new ManualResetEvent(false);
 
-        public CrawlerNode(Socket crawlerSocket)
-            :base(crawlerSocket, ConsoleColor.Black, 0)
+        public CrawlerNode(Socket socket)
+            :base(socket, ConsoleColor.Cyan)
         {
-            workQueue = new BlockingCollection<HTMLRecord>();
+            workQueue = new ConcurrentQueue<HTMLRecord>();
         }
 
-        public void addWork(HTMLRecord record)
+        public void Start()
         {
-            workQueue.Add(record);
+            Thread sendThread = new Thread(Send);
+            sendThread.Start();
         }
+
+        public void AddWork(HTMLRecord record)
+        {
+            workQueue.Enqueue(record);
+            waitForJob.Set();
+        }
+
+        public void AllowSend()
+        {
+            waitForJob.Set();
+        }
+
+        public void Send()
+        {
+            while (true)
+            {
+                waitForJob.WaitOne();
+
+                HTMLRecord record = null;
+                if (workQueue.TryDequeue(out record))
+                {
+                    string message = CrawlerManager.Instance.SerializeToJSON(record, typeof(HTMLRecord));
+                    CrawlerManager.Instance.Send(this, message);
+                }
+
+                waitForJob.Reset();
+            }
+        }
+
+        /*public void Send()
+        {
+            while (true)
+            {
+                if (workQueue.Count == 0)
+                    waitForJob.WaitOne();
+
+                HTMLRecord record = workQueue.Take();
+                string message = CrawlerManager.Instance.SerializeToJSON(record, typeof(HTMLRecord));
+                CrawlerManager.Instance.Send(this, message + "<EOF>");
+
+                waitForJob.Reset();
+            }
+        }*/
     }
 }
 

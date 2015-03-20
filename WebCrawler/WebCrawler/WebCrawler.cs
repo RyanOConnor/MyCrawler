@@ -44,14 +44,14 @@ namespace WebCrawler
             waitForResults = new ManualResetEvent(false);
             waitForShutdown = new ManualResetEvent(false);
             domainDictionary = new Dictionary<string, Domain>();
-            SocketServer.Connected += new EventHandler(OnConnection);
-            SocketServer.MessageSubmitted += new EventHandler(OnMessageSent);
-            SocketServer.MessageReceived += new EventHandler<MessageEventArgs>(OnMessageReceived);
+            SocketServer.Instance.Connected += new EventHandler(OnConnection);
+            SocketServer.Instance.MessageSubmitted += new EventHandler(OnMessageSent);
+            SocketServer.Instance.MessageReceived += new EventHandler<MessageEventArgs>(OnMessageReceived);
         }
 
         public void Start()
         {
-            SocketServer.StartClient();
+            SocketServer.Instance.StartClient();
             Thread responseProcess = new Thread(SendResults);
             responseProcess.Start();
 
@@ -63,7 +63,7 @@ namespace WebCrawler
 
         public void OnConnection(object sender, EventArgs args)
         {
-            SocketServer.Send("ready");
+            SocketServer.Instance.Send("ready");
         }
 
         public void OnMessageReceived(object sender, MessageEventArgs args)
@@ -75,18 +75,20 @@ namespace WebCrawler
             }
             else if(args.Message == "status")
             {
-                SocketServer.Send(status.ToString());
+                SocketServer.Instance.Send(status.ToString());
             }
             else
             {
-                EnqueueWork(DeserializeJSON(args.Message));
-                SocketServer.Send("ready");
+                HTMLPage page = DeserializeJSON(args.Message);
+                Console.WriteLine("Received: " + page.Domain.AbsoluteUri);
+                EnqueueWork(page);
+                SocketServer.Instance.Send("ready");
             }
         }
 
         public void OnMessageSent(object sender, EventArgs args)
         {
-            SocketServer.Receive();
+            SocketServer.Instance.Receive();
         }
 
         public void SendResults()
@@ -104,7 +106,7 @@ namespace WebCrawler
                     status = CrawlerStatus.SENDING_DATA;
                 }
                 HTMLPage page = DequeueResult();
-                SocketServer.Send(SerializeToJSON(page));
+                SocketServer.Instance.Send(SerializeToJSON(page));
             }
         }
 
@@ -162,7 +164,7 @@ namespace WebCrawler
                     message = message.TrimEnd(eof);
                 }
                 DataContractJsonSerializer ser = new DataContractJsonSerializer(typeof(HTMLPage));
-                MemoryStream stream = new MemoryStream(Encoding.Unicode.GetBytes(message));
+                MemoryStream stream = new MemoryStream(Encoding.UTF8.GetBytes(message));
                 return ser.ReadObject(stream) as HTMLPage;
             }
             catch(Exception ex)
@@ -179,7 +181,7 @@ namespace WebCrawler
                 DataContractJsonSerializer ser = new DataContractJsonSerializer(typeof(HTMLPage));
                 MemoryStream stream = new MemoryStream();
                 ser.WriteObject(stream, page);
-                return Encoding.ASCII.GetString(stream.ToArray());
+                return Encoding.UTF8.GetString(stream.ToArray());
             }
             catch(Exception ex)
             {
