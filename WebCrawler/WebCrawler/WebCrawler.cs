@@ -44,15 +44,17 @@ namespace WebCrawler
             waitForResults = new ManualResetEvent(false);
             waitForShutdown = new ManualResetEvent(false);
             domainDictionary = new Dictionary<string, Domain>();
-            SocketServer.Instance.Connected += new EventHandler(OnConnection);
-            SocketServer.Instance.MessageSubmitted += new EventHandler(OnMessageSent);
+            SocketClient.Instance.ClientConnected += new EventHandler<MessageEventArgs>(OnClientConnection);
+            SocketClient.Instance.MessageSubmitted += new EventHandler(OnMessageSent);
             SocketServer.Instance.MessageReceived += new EventHandler<MessageEventArgs>(OnMessageReceived);
+            SocketServer.Instance.ServerConnected += new EventHandler(OnServerConnection);
         }
 
-        public void Start()
+        public void Start(string ipAd)
         {
-            SocketServer.Instance.StartClient();
-            Thread responseProcess = new Thread(SendResults);
+            Thread startClient = new Thread(() => SocketClient.Instance.StartClient(ipAd));
+            startClient.Start();
+            Thread responseProcess = new Thread(WebCrawler.Instance.SendResults);
             responseProcess.Start();
 
             while (status != CrawlerStatus.SHUTTING_DOWN)
@@ -61,9 +63,14 @@ namespace WebCrawler
             }
         }
 
-        public void OnConnection(object sender, EventArgs args)
+        public void OnClientConnection(object sender, MessageEventArgs args)
         {
-            SocketServer.Instance.Send("ready");
+            SocketServer.Instance.StartListener(args.Message);
+        }
+
+        public void OnServerConnection(object sender, EventArgs args)
+        {
+            SocketClient.Instance.Send("ready");
         }
 
         public void OnMessageReceived(object sender, MessageEventArgs args)
@@ -75,20 +82,20 @@ namespace WebCrawler
             }
             else if(args.Message == "status")
             {
-                SocketServer.Instance.Send(status.ToString());
+                SocketClient.Instance.Send(status.ToString());
             }
             else
             {
                 HTMLPage page = DeserializeJSON(args.Message);
-                Console.WriteLine("Received: " + page.Domain.AbsoluteUri);
+                Console.WriteLine("\nReceived: \n" + page.Domain.AbsoluteUri);
                 EnqueueWork(page);
-                SocketServer.Instance.Send("ready");
+                SocketClient.Instance.Send("ready");
             }
         }
 
         public void OnMessageSent(object sender, EventArgs args)
         {
-            SocketServer.Instance.Receive();
+
         }
 
         public void SendResults()
@@ -106,7 +113,9 @@ namespace WebCrawler
                     status = CrawlerStatus.SENDING_DATA;
                 }
                 HTMLPage page = DequeueResult();
-                SocketServer.Instance.Send(SerializeToJSON(page));
+                string JSON = SerializeToJSON(page);
+                SocketClient.Instance.Send(JSON);
+                Console.WriteLine("\nSent: \n" + page.Domain.AbsoluteUri);
             }
         }
 
@@ -157,12 +166,6 @@ namespace WebCrawler
         {
             try
             {
-                if (message.EndsWith("<EOF>"))
-                {
-                    string token = "<EOF>";
-                    char[] eof = token.ToCharArray();
-                    message = message.TrimEnd(eof);
-                }
                 DataContractJsonSerializer ser = new DataContractJsonSerializer(typeof(HTMLPage));
                 MemoryStream stream = new MemoryStream(Encoding.UTF8.GetBytes(message));
                 return ser.ReadObject(stream) as HTMLPage;

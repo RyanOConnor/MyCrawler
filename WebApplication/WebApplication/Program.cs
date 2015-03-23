@@ -13,17 +13,23 @@ namespace WebApplication
     {
         static void Main(string[] args)
         {
-            IPAddress ip = IPAddress.Parse("192.168.1.132");
-            IPEndPoint ep = new IPEndPoint(ip, 11000);
-            CrawlerManager.Instance.AllowCrawlerIP(ep);
+            foreach(string ipAddress in args)
+            {
+                IPAddress ip = IPAddress.Parse(ipAddress);
+                IPEndPoint ep = new IPEndPoint(ip, 11000);
+                CrawlerManager.Instance.AllowCrawlerIP(ep);
+            }
 
             Thread dataThread = new Thread(DataManager.Instance.Start);
             dataThread.Start();
 
-            Thread crawlerThread = new Thread(CrawlerManager.Instance.StartListener);
+            string ipAd = "192.168.1.132";
+            IPEndPoint endpoint = new IPEndPoint(IPAddress.Parse(ipAd), 11000);
+            CrawlerManager.Instance.AllowCrawlerIP(endpoint);
+            Thread crawlerThread = new Thread(() => CrawlerManager.Instance.StartListener(ipAd));
             crawlerThread.Start();
 
-            /*HTMLRecord page1 = new HTMLRecord("http://www.reddit.com/",
+            HTMLRecord page1 = new HTMLRecord("http://www.reddit.com/",
                                         DateTime.Now,
                                         new List<string>() { "a", ".title", "href" },
                                         new List<string>() { "java", "c#", "javascript", "parallelism", "threading", "project", "big four", "facebook" });
@@ -100,34 +106,30 @@ namespace WebApplication
                                         new List<string>() { "a", ".story-title-link", "href" },
                                         new List<string>() { "tesla", "facebook", "snapchat", "virus" });
 
-            //Console.WriteLine("Hit enter to load work queue...");
-            //Console.ReadLine();
-
-            crawlerManager.DistributeWorkAmongstCrawlers(page8);
-            crawlerManager.DistributeWorkAmongstCrawlers(page9);
+            /*CrawlerManager.Instance.DistributeWork(page8);
+            CrawlerManager.Instance.DistributeWork(page9);
             //crawlerManager.distributeWorkAmongstCrawlers(page12);
-            crawlerManager.DistributeWorkAmongstCrawlers(page14);
-            crawlerManager.DistributeWorkAmongstCrawlers(page15);
+            CrawlerManager.Instance.DistributeWork(page14);
+            CrawlerManager.Instance.DistributeWork(page15);
             //Thread.Sleep(2000);
-            crawlerManager.DistributeWorkAmongstCrawlers(page17);
-            crawlerManager.DistributeWorkAmongstCrawlers(page18);
-            crawlerManager.DistributeWorkAmongstCrawlers(page19);
+            CrawlerManager.Instance.DistributeWork(page17);
+            CrawlerManager.Instance.DistributeWork(page18);
+            CrawlerManager.Instance.DistributeWork(page19);
             //Thread.Sleep(2000);
-            crawlerManager.DistributeWorkAmongstCrawlers(page21);
-            crawlerManager.DistributeWorkAmongstCrawlers(page22);
-            crawlerManager.DistributeWorkAmongstCrawlers(page23);
+            CrawlerManager.Instance.DistributeWork(page21);
+            CrawlerManager.Instance.DistributeWork(page22);
+            CrawlerManager.Instance.DistributeWork(page23);
             //Thread.Sleep(5000);
-            crawlerManager.DistributeWorkAmongstCrawlers(page25);
-            crawlerManager.DistributeWorkAmongstCrawlers(page1);
-            crawlerManager.DistributeWorkAmongstCrawlers(page2);
-            crawlerManager.DistributeWorkAmongstCrawlers(page3);
+            CrawlerManager.Instance.DistributeWork(page25);
+            CrawlerManager.Instance.DistributeWork(page1);
+            CrawlerManager.Instance.DistributeWork(page2);
+            CrawlerManager.Instance.DistributeWork(page3);
             //Thread.Sleep(2000);
-            crawlerManager.DistributeWorkAmongstCrawlers(page4);
-            crawlerManager.DistributeWorkAmongstCrawlers(page5);
-            crawlerManager.DistributeWorkAmongstCrawlers(page6);*/
+            CrawlerManager.Instance.DistributeWork(page4);
+            CrawlerManager.Instance.DistributeWork(page5);
+            CrawlerManager.Instance.DistributeWork(page6);*/
 
             Console.WriteLine("Distributed work to crawlers....");
-            //Console.ReadLine();
         }
     }
 }

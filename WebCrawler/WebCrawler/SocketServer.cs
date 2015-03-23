@@ -6,63 +6,16 @@ using System.Threading.Tasks;
 using System.Net;
 using System.Net.Sockets;
 using System.Threading;
-using System.Runtime.Serialization.Json;
-using System.IO;
 
 namespace WebCrawler
 {
-    public class BufferHandle
+    class SocketServer
     {
-        public Socket socket { get; set; }
-        public byte[] buffer { get; set; }
-        public const int BUFFER_SIZE = 1024;
-        private StringBuilder strBuilder;
-        public StringBuilder str 
-        { 
-            get
-            {
-                lock (this.strBuilder)
-                {
-                    return this.strBuilder;
-                }
-            }
-            set
-            {
-                lock (this.strBuilder)
-                {
-                    this.strBuilder = value;
-                }
-            }
-        }
-
-        public BufferHandle()
-        {
-            buffer = new byte[BUFFER_SIZE];
-            strBuilder = new StringBuilder();
-        }
-
-        public void Reset()
-        {
-            this.strBuilder = new StringBuilder();
-        }
-    }
-
-    public class MessageEventArgs : EventArgs
-    {
-        public string Message { get; set; }
-        public MessageEventArgs(string message)
-        {
-            this.Message = message;
-        }
-    }
-
-    public class SocketServer
-    {
-        private Socket Server { get; set; }
-        private ManualResetEvent ConnectDone = new ManualResetEvent(false);
-        public event EventHandler Connected;
+        private SocketHandle receiveSocket { get; set; }
+        private string ipAddress { get; set; }
+        public event EventHandler ServerConnected;
         public event EventHandler<MessageEventArgs> MessageReceived;
-        public event EventHandler MessageSubmitted;
+        protected ManualResetEvent listenerSignal = new ManualResetEvent(false);
         private static SocketServer _instance;
         public static SocketServer Instance
         {
@@ -74,47 +27,56 @@ namespace WebCrawler
             }
         }
 
-        public void StartClient()
+        public void StartListener(string ipAd)
         {
-            IPHostEntry ipHostInfo = Dns.GetHostEntry(Dns.GetHostName());
-            IPAddress ipAddress = IPAddress.Parse("192.168.1.132");
-            IPEndPoint endPoint = new IPEndPoint(ipAddress, 11000);
+            ipAddress = ipAd;
+            IPAddress ip = IPAddress.Parse(ipAddress);
+            IPEndPoint endPoint = new IPEndPoint(ip, 11001);
+
+            Socket listener = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
 
             try
             {
-                Server = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
-                Server.BeginConnect(endPoint, new AsyncCallback(ConnectCallBack), Server);
-                ConnectDone.WaitOne();
+                listener.Bind(endPoint);
+                listener.Listen(100);
 
-                EventHandler connectedHandler = Connected;
-                if(connectedHandler != null)
+                while (true)
                 {
-                    connectedHandler(null, EventArgs.Empty);
+                    listenerSignal.Reset();
+
+                    listener.BeginAccept(new AsyncCallback(ConnectCallBack), listener);
+
+                    listenerSignal.WaitOne();
+
+                    EventHandler connectedHandler = ServerConnected;
+                    if(connectedHandler != null)
+                    {
+                        connectedHandler(null, EventArgs.Empty);
+                    }
                 }
             }
-            catch(Exception ex)
+            catch (SocketException ex)
             {
                 Console.WriteLine(ex.ToString());
             }
         }
 
-        public bool IsConnected()
-        {
-            return Server.Poll(1000, SelectMode.SelectWrite);
-        }
-
         private void ConnectCallBack(IAsyncResult result)
         {
+            listenerSignal.Set();
+
             try
             {
-                Socket server = (Socket)result.AsyncState;
-                server.EndConnect(result);
+                Socket listener = (Socket)result.AsyncState;
+                Socket handler = listener.EndAccept(result);
 
-                Console.WriteLine("Socket connected to {0}", server.RemoteEndPoint.ToString());
+                Console.WriteLine("SocketClient connected to {0}", handler.RemoteEndPoint.ToString());
 
-                ConnectDone.Set();
+                receiveSocket = new SocketHandle(handler);
+                receiveSocket.socket.BeginReceive(receiveSocket.buffer, 0, SocketHandle.BUFFER_SIZE, 0,
+                                                    new AsyncCallback(ReceiveCallBack), receiveSocket);
             }
-            catch(Exception ex)
+            catch (SocketException ex)
             {
                 Console.WriteLine(ex.ToString());
             }
@@ -124,11 +86,12 @@ namespace WebCrawler
         {
             try
             {
-                BufferHandle socketHandle = new BufferHandle();
-                Server.BeginReceive(socketHandle.buffer, 0, BufferHandle.BUFFER_SIZE, 0,
-                                                    new AsyncCallback(ReceiveCallBack), socketHandle);
+                Socket server = receiveSocket.socket;
+                receiveSocket = new SocketHandle(server);
+                receiveSocket.socket.BeginReceive(receiveSocket.buffer, 0, SocketHandle.BUFFER_SIZE, 0,
+                                                    new AsyncCallback(ReceiveCallBack), receiveSocket);
             }
-            catch(Exception ex)
+            catch (SocketException ex)
             {
                 Console.WriteLine(ex.ToString());
             }
@@ -136,76 +99,52 @@ namespace WebCrawler
 
         private void ReceiveCallBack(IAsyncResult result)
         {
-            BufferHandle socketHandle = (BufferHandle)result.AsyncState;
-            int bytesRead = Server.EndReceive(result);
-            string content = string.Empty;
+            SocketHandle socketHandle = (SocketHandle)result.AsyncState;
+            Socket client = socketHandle.socket;
+            int bytesRead = client.EndReceive(result);
 
             try
-            {
+            { 
                 if (bytesRead > 0)
                 {
                     socketHandle.str.Append(Encoding.UTF8.GetString(socketHandle.buffer, 0, bytesRead));
-                    content = socketHandle.str.ToString();
 
-                    if (content.IndexOf("<EOF>") > -1)
+                    if (client.Available > 0)
                     {
-                        string message = content.Remove(content.IndexOf("<EOF>"));
-
-                        EventHandler<MessageEventArgs> messageReceived = MessageReceived;
-                        if (messageReceived != null)
-                        {
-                            messageReceived(null, new MessageEventArgs(message));
-                        }
-                        socketHandle.Reset();
+                        client.BeginReceive(socketHandle.buffer, 0, SocketHandle.BUFFER_SIZE, 0,
+                                                            new AsyncCallback(ReceiveCallBack), socketHandle);
                     }
                     else
                     {
-                        Server.BeginReceive(socketHandle.buffer, 0, BufferHandle.BUFFER_SIZE, 0,
-                                                new AsyncCallback(ReceiveCallBack), socketHandle);
+                        if (socketHandle.str.Length > 1)
+                        {
+                            string response = socketHandle.str.ToString();
+                            socketHandle.Reset();
+
+                            EventHandler<MessageEventArgs> messageReceived = MessageReceived;
+                            if (messageReceived != null)
+                            {
+                                messageReceived(client, new MessageEventArgs(response));
+                            }
+
+                            Receive();    
+                        }
                     }
                 }
             }
-            catch(Exception ex)
+            catch (Exception ex)
             {
                 Console.WriteLine(ex.ToString());
             }
         }
+    }
 
-        public void Send(string message)
+    public class MessageEventArgs : EventArgs
+    {
+        public string Message { get; set; }
+        public MessageEventArgs(string message)
         {
-            message += "<EOF>";
-            byte[] byteData = Encoding.UTF8.GetBytes(message);
-
-            if(IsConnected())
-            {
-                Server.BeginSend(byteData, 0, byteData.Length, 0, new AsyncCallback(SendCallBack), Server);
-                Console.WriteLine("Sent: \n" + message);
-            }
-            else
-            {
-                SocketServer.Instance.StartClient();
-                SocketServer.Instance.Send(message);
-                throw new Exception();
-            }
-        }
-
-        public void SendCallBack(IAsyncResult result)
-        {
-            try
-            {
-                Socket server = (Socket)result.AsyncState;
-                server.EndSend(result);
-
-                EventHandler messageSubmitted = MessageSubmitted;
-                if (messageSubmitted != null)
-                {
-                    messageSubmitted(server, EventArgs.Empty);
-                }
-            }
-            catch(Exception ex)
-            {
-                Console.WriteLine(ex.ToString());
-            }
+            this.Message = message;
         }
     }
 }

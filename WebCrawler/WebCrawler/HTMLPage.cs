@@ -15,6 +15,7 @@ using System.Text.RegularExpressions;
 using MongoDB.Bson;
 using MongoDB.Bson.Serialization.Attributes;
 using MongoDB.Bson.Serialization.Options;
+using System.Diagnostics;
 
 namespace WebCrawler
 {
@@ -34,31 +35,32 @@ namespace WebCrawler
             try
             {
                 response = (HttpWebResponse)request.EndGetResponse(webRequest);
-
-                if (response.StatusCode == HttpStatusCode.OK)
+                string type = response.Headers["content-type"];
+                if (NotBinaryFileType(type))
                 {
-                    string htmlString = DecompressHtml(response);
-
-                    HtmlDoc = new HtmlDocument();
-                    HtmlDoc.LoadHtml(htmlString);
-
-                    Console.WriteLine("\n[{0}] - {2}seconds - Loaded {1}", DateTime.Now.TimeOfDay, Domain.AbsoluteUri, (DateTime.Now - this.TimeStamp).TotalSeconds);
-
-                    EventHandler<ChildPage> webPageLoaded = this.WebPageLoaded;
-                    if(webPageLoaded != null)
+                    if (response.StatusCode == HttpStatusCode.OK)
                     {
-                        webPageLoaded(null, this);
+                        string htmlString = DecompressHtml(response);
+
+                        HtmlDoc = new HtmlDocument();
+                        HtmlDoc.LoadHtml(htmlString);
                     }
                 }
+                //Console.WriteLine("\n[{0}] - {2}seconds - Loaded {1}", DateTime.Now.TimeOfDay, Domain.AbsoluteUri, (DateTime.Now - this.TimeStamp).TotalSeconds);
 
+                EventHandler<ChildPage> webPageLoaded = this.WebPageLoaded;
+                if (webPageLoaded != null)
+                {
+                    webPageLoaded(null, this);
+                }
             }
-            catch (WebException ex)
+            catch (Exception ex)
             {
                 Console.ForegroundColor = ConsoleColor.Red;
                 Console.WriteLine(Domain.AbsoluteUri);
                 Console.ForegroundColor = ConsoleColor.Gray;
 
-                Console.WriteLine(ex.ToString());
+                Console.WriteLine("\n" + ex.ToString() + "\n");
                 this.SetWaitTime(WaitTime + 10000);
                 if (WaitTime < 60000)
                 {
@@ -74,6 +76,14 @@ namespace WebCrawler
                     }
                 }
             }
+        }
+
+        private bool NotBinaryFileType(string type)
+        {
+            if (type.Contains("text") || type.Contains("html"))
+                return true;
+            else
+                return false;
         }
     }
 
@@ -150,7 +160,11 @@ namespace WebCrawler
             HttpWebResponse response;
             try
             {
+                Stopwatch sw = new Stopwatch();
+                sw.Start();
+
                 response = (HttpWebResponse)request.EndGetResponse(webRequest);
+                Console.WriteLine("\n\t\t\tLoading {0}", Domain.AbsoluteUri);
 
                 if (response.StatusCode == HttpStatusCode.OK)
                 {
@@ -160,10 +174,17 @@ namespace WebCrawler
                     if (Keywords.Count != 0)
                     {
                         LoadChildPages(results.ToList());
-                        RankedResults = FilterByKeyWords(ChildPages);
+                        RankedResults = RankByKeywords(ChildPages);
+                    }
+                    else
+                    {
+                        RankedResults = results.ToDictionary(key => key, value => 0);
                     }
 
                     WebCrawler.Instance.EnqueueResult(this);
+                    
+                    sw.Stop();
+                    Console.WriteLine("\n\t\t\t{0} seconds - Loaded {1}", sw.Elapsed.Seconds, Domain.AbsoluteUri);
                 }
                 else
                 {
@@ -171,7 +192,7 @@ namespace WebCrawler
                     WebCrawler.Instance.EnqueueWork(this);
                 }
             }
-            catch (WebException ex)
+            catch (Exception ex)
             {
                 Console.ForegroundColor = ConsoleColor.Red;
                 Console.WriteLine(URL);
@@ -197,6 +218,7 @@ namespace WebCrawler
             foreach (string url in results)
             {
                 ChildPage page = new ChildPage(url, DateTime.Now);
+                
                 page.WebPageLoaded += new EventHandler<ChildPage>(OnWebPageLoaded);
                 WebCrawler.Instance.EnqueueWork(page);
             }
@@ -331,11 +353,13 @@ namespace WebCrawler
             }
 
             HashSet<string> links = new HashSet<string>(queryResults);
+            links = FixUrls(links);
 
-            return FixUrls(links);
+
+            return links;
         }
 
-        private Dictionary<string, int> FilterByKeyWords(List<ChildPage> childPages)
+        private Dictionary<string, int> RankByKeywords(List<ChildPage> childPages)
         {
             IOrderedEnumerable<KeyValuePair<string, int>> sortedList = null;
             try
@@ -344,10 +368,10 @@ namespace WebCrawler
 
                 foreach (ChildPage page in childPages)
                 {
+                    int pageScore = 0;
                     if (page.HtmlDoc != null)
                     {
                         string innerText = page.HtmlDoc.DocumentNode.InnerText.ToLower();
-                        int pageScore = 0;
                         foreach (string keyword in Keywords)
                         {
                             if (innerText.Contains(keyword.ToLower()))
@@ -359,13 +383,13 @@ namespace WebCrawler
                                 continue;
                             }
                         }
-                        results.Add(new KeyValuePair<string, int>(page.Domain.AbsoluteUri, pageScore));
                     }
+                    results.Add(new KeyValuePair<string, int>(page.Domain.AbsoluteUri, pageScore));
                 }
 
                 sortedList = from entry in results orderby entry.Value descending select entry;
 
-                PrintRankedPages(sortedList);
+                //PrintRankedPages(sortedList);
             }
             catch(Exception ex)
             {

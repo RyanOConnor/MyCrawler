@@ -9,19 +9,19 @@ namespace WebCrawler
 {
     class Domain
     {
-        private string DomainName { get; set; }
+        private string domainName { get; set; }
         private Queue<HTMLPage> workQueue = new Queue<HTMLPage>();
-        private Timer Timer { get; set; }
+        private Timer timer { get; set; }
         private const int DOMAIN_DELAY_PERIOD = 2000;
 
         public Domain(string domainName)
         {
-            this.DomainName = domainName;
+            this.domainName = domainName;
         }
 
         public void InitTimer()
         {
-            Timer = new Timer(new TimerCallback(Update), null, 0, DOMAIN_DELAY_PERIOD);
+            timer = new Timer(new TimerCallback(Update), null, 0, DOMAIN_DELAY_PERIOD);
         }
         
         public void Update(object stateInfo)
@@ -37,8 +37,8 @@ namespace WebCrawler
             }
             else
             {
-                Timer.Dispose();
-                WebCrawler.Instance.RemoveDomain(this.DomainName);
+                timer.Dispose();
+                WebCrawler.Instance.RemoveDomain(this.domainName);
             }
         }
 

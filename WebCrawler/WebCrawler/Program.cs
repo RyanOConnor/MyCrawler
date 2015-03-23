@@ -17,20 +17,10 @@ namespace WebCrawler
             ServicePointManager.DefaultConnectionLimit = 10000;
             ServicePointManager.Expect100Continue = false;
 
-            //bool firstInstance;
-            //Mutex mutex = new Mutex(false, @"C:\8086", out firstInstance);
+            string ipAddress = "192.168.1.132";
+            Thread MainThread = new Thread(() => WebCrawler.Instance.Start(ipAddress));
+            MainThread.Start();
 
-            //if(!firstInstance)
-            //{
-                // another instance of this application is running
-            //}
-            //else
-            //{
-                Thread MainThread = new Thread(WebCrawler.Instance.Start);
-                MainThread.Start();
-            //}
-
-            //GC.KeepAlive(mutex);
         }
     }
 }

@@ -36,7 +36,6 @@ namespace WebApplication
 
         public DataManager()
         {
-            CrawlerManager.UpdateReceived += new EventHandler<HTMLRecord>(UpdateEntry);
         }
 
         public void Start()
@@ -49,6 +48,11 @@ namespace WebApplication
             LoadJobSchedule();
             Thread scheduler = new Thread(ScheduleJobs);
             scheduler.Start();
+        }
+
+        public void AddCrawlerEvent(CrawlerNode node)
+        {
+            node.UpdateReceived += new EventHandler<HTMLRecord>(UpdateEntry);
         }
 
         private void LoadJobSchedule()
