@@ -6,7 +6,6 @@ using System.Threading.Tasks;
 using System.Net.Sockets;
 using System.Net;
 using System.Threading;
-using System.Runtime.Serialization.Json;
 using System.IO;
 using HtmlAgilityPack;
 
@@ -21,6 +20,7 @@ namespace WebCrawler
         private Queue<HTMLPage> resultQueue { get; set; }
         private ManualResetEvent waitForShutdown { get; set; }
         private ManualResetEvent waitForResults { get; set; }
+        public const int TIMEOUT_PERIOD = 60000;
         private static WebCrawler _instance;
         public static WebCrawler Instance
         {
@@ -86,7 +86,7 @@ namespace WebCrawler
             }
             else
             {
-                HTMLPage page = DeserializeJSON(args.Message);
+                HTMLPage page = JSON.Deserialize<HTMLPage>(args.Message);
                 Console.WriteLine("\nReceived: \n" + page.Domain.AbsoluteUri);
                 EnqueueWork(page);
                 SocketClient.Instance.Send("ready");
@@ -113,8 +113,8 @@ namespace WebCrawler
                     status = CrawlerStatus.SENDING_DATA;
                 }
                 HTMLPage page = DequeueResult();
-                string JSON = SerializeToJSON(page);
-                SocketClient.Instance.Send(JSON);
+                string json = JSON.Serialize<HTMLPage>(page);
+                SocketClient.Instance.Send(json);
                 Console.WriteLine("\nSent: \n" + page.Domain.AbsoluteUri);
             }
         }
@@ -159,37 +159,6 @@ namespace WebCrawler
             lock (resultQueue)
             {
                 return resultQueue.Dequeue();
-            }
-        }
-
-        private HTMLPage DeserializeJSON(string message)
-        {
-            try
-            {
-                DataContractJsonSerializer ser = new DataContractJsonSerializer(typeof(HTMLPage));
-                MemoryStream stream = new MemoryStream(Encoding.UTF8.GetBytes(message));
-                return ser.ReadObject(stream) as HTMLPage;
-            }
-            catch(Exception ex)
-            {
-                Console.WriteLine(ex.ToString());
-                throw ex;
-            }
-        }
-
-        private string SerializeToJSON(HTMLPage page)
-        {
-            try
-            {
-                DataContractJsonSerializer ser = new DataContractJsonSerializer(typeof(HTMLPage));
-                MemoryStream stream = new MemoryStream();
-                ser.WriteObject(stream, page);
-                return Encoding.UTF8.GetString(stream.ToArray());
-            }
-            catch(Exception ex)
-            {
-                Console.WriteLine(ex.ToString());
-                throw ex;
             }
         }
     }

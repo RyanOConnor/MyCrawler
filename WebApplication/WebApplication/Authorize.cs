@@ -9,21 +9,53 @@ using MongoDB.Bson;
 
 namespace WebApplication
 {
-    class Authorize
+    public static class Authorize
     {
-        public void generateSaltValue()
-        {
+        private const int SaltSize = 24;
+        private const int HashSize = 24;
 
+        public static byte[] GenerateSalt()
+        {
+            RNGCryptoServiceProvider rng = new RNGCryptoServiceProvider();
+            byte[] buffer = new byte[SaltSize];
+            rng.GetBytes(buffer);
+
+            return buffer;
         }
 
-        public void hashPassword(string clearData, string saltValue, HashAlgorithm hash)
+        public static byte[] GenerateSaltedHash(byte[] password, byte[] salt)
         {
+            SHA256Managed algorithm = new SHA256Managed();
+            byte[] algorithmInput = new byte[password.Length + salt.Length];
 
+            password.CopyTo(algorithmInput, 0);
+            salt.CopyTo(algorithmInput, password.Length);
+
+            return algorithm.ComputeHash(algorithmInput);
         }
 
-        public void validateHash(ObjectId userid, string hash)
+        public static bool IsValidHash(byte[] inputPassword, byte[] storedPassword)
         {
+            if(inputPassword.Length != storedPassword.Length)
+            {
+                return false;
+            }
 
+            for (int i = 0; i < inputPassword.Length; i++)
+            {
+                if (inputPassword[i] != storedPassword[i])
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        public static bool PassesGuidelines(byte[] password)
+        {
+            // Set up password requirements
+            return true;
         }
     }
 }

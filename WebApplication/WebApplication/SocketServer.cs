@@ -36,7 +36,7 @@ namespace WebApplication
                 listener.Bind(endPoint);
                 listener.Listen(100);
 
-                while(true)
+                while (true)
                 {
                     listenerSignal.Reset();
 
@@ -47,9 +47,10 @@ namespace WebApplication
                     Console.WriteLine("Connected to crawler: " + listener.LocalEndPoint.ToString());
                 }
             }
-            catch(SocketException ex)
+            catch (SocketException ex)
             {
                 Console.WriteLine(ex.ToString());
+                throw ex;
             }
         }
 
@@ -66,24 +67,33 @@ namespace WebApplication
                 receiveSocket.socket.BeginReceive(receiveSocket.buffer, 0, SocketHandle.BUFFER_SIZE, 0,
                                                     new AsyncCallback(ReceiveCallBack), receiveSocket);
             }
-            catch(SocketException ex)
+            catch (SocketException ex)
             {
                 Console.WriteLine(ex.ToString());
+                throw ex;
             }
         }
 
-        protected void Receive()
+        protected void Receive(IAsyncResult result)
         {
             try
             {
+                if(result != null)
+                {
+                    var async = (System.Runtime.Remoting.Messaging.AsyncResult)result;
+                    var invokedMethod = (EventHandler<MessageEventArgs>)async.AsyncDelegate;
+                    invokedMethod.EndInvoke(result);
+                }
+
                 Socket server = receiveSocket.socket;
                 receiveSocket = new SocketHandle(server);
                 receiveSocket.socket.BeginReceive(receiveSocket.buffer, 0, SocketHandle.BUFFER_SIZE, 0,
                                                     new AsyncCallback(ReceiveCallBack), receiveSocket);
             }
-            catch(SocketException ex)
+            catch (SocketException ex)
             {
                 Console.WriteLine(ex.ToString());
+                throw ex;
             }
         }
 
@@ -110,23 +120,20 @@ namespace WebApplication
                         {
                             string message = socketHandle.str.ToString();
                             socketHandle.Reset();
-                            
-                            //Console.WriteLine("\nRecieved: " + message);
 
                             EventHandler<MessageEventArgs> messageReceived = MessageReceived;
                             if (messageReceived != null)
                             {
-                                messageReceived(server, new MessageEventArgs(message));
+                                messageReceived.BeginInvoke(null, new MessageEventArgs(message), Receive, null);
                             }
-                            
-                            Receive();
                         }
                     }
                 }
             }
-            catch(Exception ex)
+            catch (Exception ex)
             {
                 Console.WriteLine(ex.ToString());
+                throw ex;
             }
         }
 
@@ -134,39 +141,7 @@ namespace WebApplication
         {
             return handle.socket.Poll(1000, SelectMode.SelectWrite);
         }
-
-        public string SerializeToJSON(object obj, Type type)
-        {
-            try
-            {
-                DataContractJsonSerializer ser = new DataContractJsonSerializer(type);
-                MemoryStream stream = new MemoryStream();
-                ser.WriteObject(stream, obj);
-                return Encoding.UTF8.GetString(stream.ToArray());
-            }
-            catch(Exception ex)
-            {
-                Console.WriteLine(ex.ToString());
-                throw ex;
-            }
-        }
-
-        public object DeserializeJSON(string message, Type type)
-        {
-            try
-            {
-                DataContractJsonSerializer ser = new DataContractJsonSerializer(type);
-                MemoryStream stream = new MemoryStream(Encoding.UTF8.GetBytes(message));
-                return ser.ReadObject(stream) as object;
-            }
-            catch(Exception ex)
-            {
-                Console.WriteLine(ex.ToString());
-                throw ex;
-            }
-        }
     }
-
     public class MessageEventArgs : EventArgs
     {
         public string Message { get; set; }

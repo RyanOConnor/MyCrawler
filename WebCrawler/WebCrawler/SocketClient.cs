@@ -73,7 +73,7 @@ namespace WebCrawler
 
         public bool IsConnected()
         {
-            return sendSocket.Poll(1000, SelectMode.SelectWrite);
+            return !(sendSocket.Poll(1000, SelectMode.SelectRead) && sendSocket.Available == 0);
         }
 
         public void Send(string message)
@@ -87,6 +87,9 @@ namespace WebCrawler
             }
             else
             {
+                SocketClient.Instance.sendSocket.Shutdown(SocketShutdown.Both);
+                SocketClient.Instance.sendSocket.Close();
+
                 SocketClient.Instance.StartClient(ipAddress);
                 SocketClient.Instance.Send(message);
                 throw new Exception();

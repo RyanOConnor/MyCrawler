@@ -82,10 +82,16 @@ namespace WebCrawler
             }
         }
 
-        public void Receive()
+        public void Receive(IAsyncResult result)
         {
             try
             {
+                if(result != null)
+                {
+                    var async = (System.Runtime.Remoting.Messaging.AsyncResult)result;
+                    var invokedMethod = (EventHandler<MessageEventArgs>)async.AsyncDelegate;
+                    invokedMethod.EndInvoke(result);
+                }
                 Socket server = receiveSocket.socket;
                 receiveSocket = new SocketHandle(server);
                 receiveSocket.socket.BeginReceive(receiveSocket.buffer, 0, SocketHandle.BUFFER_SIZE, 0,
@@ -124,10 +130,8 @@ namespace WebCrawler
                             EventHandler<MessageEventArgs> messageReceived = MessageReceived;
                             if (messageReceived != null)
                             {
-                                messageReceived(client, new MessageEventArgs(response));
+                                messageReceived.BeginInvoke(null, new MessageEventArgs(response), Receive, null);
                             }
-
-                            Receive();    
                         }
                     }
                 }

@@ -5,6 +5,7 @@ using System.Text;
 using System.Threading.Tasks;
 using System.Threading;
 using System.Runtime.Serialization;
+using System.Net;
 using MongoDB.Bson;
 using MongoDB.Bson.Serialization.Attributes;
 using MongoDB.Bson.Serialization.Options;
@@ -15,11 +16,7 @@ namespace WebApplication
 {
     public class DataManager
     {
-        private MongoServer Server { get; set; }
-        private MongoDatabase Database { get; set; }
-        private MongoCollection<HTMLRecord> Collection { get; set; }
-        private MongoClient dbClient { get; set; }
-        private Queue<HTMLRecord> writeQueue = new Queue<HTMLRecord>();
+        private MongoCollection<HTMLRecord> CrawlCollection { get; set; }
         private PriorityQueue<DateTime, ObjectId> jobSchedule = new PriorityQueue<DateTime, ObjectId>();
         private ManualResetEvent processJobs = new ManualResetEvent(false);
         public const int UPDATE_FREQUENCY = 4;
@@ -34,17 +31,10 @@ namespace WebApplication
             }
         }
 
-        public DataManager()
-        {
-        }
-
         public void Start()
         {
-            dbClient = new MongoClient();
-            Server = dbClient.GetServer();
-            Database = Server.GetDatabase("CrawlData");
-            Collection = Database.GetCollection<HTMLRecord>("PageQueue");
-            
+            CrawlCollection = Database.Instance.GetCollection<HTMLRecord>("CrawlData");
+
             LoadJobSchedule();
             Thread scheduler = new Thread(ScheduleJobs);
             scheduler.Start();
@@ -59,10 +49,13 @@ namespace WebApplication
         {
             lock (jobSchedule)
             {
-                MongoCursor<HTMLRecord> records = Collection.FindAll();
-                foreach (HTMLRecord record in records)
+                lock (CrawlCollection)  // MongoCursor is NOT thread safe
                 {
-                    EnqueueJobSchedule(record);
+                    MongoCursor<HTMLRecord> records = CrawlCollection.FindAll();
+                    foreach (HTMLRecord record in records)
+                    {
+                        EnqueueJobSchedule(record);
+                    }
                 }
             }
         }
@@ -90,9 +83,11 @@ namespace WebApplication
             }
         }
 
-        public void CreateEntry(ObjectId urlid, string url)
+        public HTMLRecord CreateEntry(ObjectId userId, NewRecord newRecord)
         {
-
+            HTMLRecord newHtmlRecord = new HTMLRecord(userId, newRecord);
+            CrawlCollection.Save(newHtmlRecord);
+            return newHtmlRecord;
         }
 
         public void ModifyEntry(ObjectId urlid, object changes)
@@ -102,9 +97,17 @@ namespace WebApplication
 
         public HTMLRecord RetrieveEntry(ObjectId id)
         {
-            var queryId = Query.EQ("_id", id);
-            var entity = Collection.FindOne(queryId);
-            return entity;
+            try
+            {
+                IMongoQuery queryId = Query.EQ("_id", id);
+                HTMLRecord entity = CrawlCollection.FindOne(queryId);
+                return entity;
+            }
+            catch(Exception ex)
+            {
+                Console.WriteLine(ex.ToString());
+                throw ex;
+            }
         }
 
         public void UpdateEntry(object sender, HTMLRecord page)
@@ -113,15 +116,17 @@ namespace WebApplication
             {
                 page.TimeStamp = DateTime.UtcNow.AddMinutes(UPDATE_FREQUENCY);
                 EnqueueJobSchedule(page);
-                Collection.Save(page);
+                CrawlCollection.Save(page);
+                UserManager.UpdateUserLink(page.UserId, page);
             }
             catch(Exception ex)
             {
                 Console.WriteLine(ex.ToString());
+                throw ex;
             }
         }
 
-        public HTMLRecord findUrlById(ObjectId id)
+        /*public HTMLRecord findUrlById(ObjectId id)
         {
             return new HTMLRecord("", DateTime.Now, new List<string>(),new List<string>());
         }
@@ -139,7 +144,7 @@ namespace WebApplication
         public HTMLRecord findSingleByDateTime(DateTime timeStamp)
         {
             return new HTMLRecord( "", DateTime.Now, new List<string>(), new List<string>());
-        }
+        }*/
 
         public void EnqueueJobSchedule(HTMLRecord record)
         {
@@ -161,25 +166,40 @@ namespace WebApplication
 
     
     [DataContract]
-    public class HTMLRecord
+    public class HTMLRecord : NewRecord, Serializable
     {
         [DataMember]
+        public ObjectId UserId { get; private set; }
+        [DataMember][BsonId]
         public ObjectId Id { get; set; }
         [DataMember]
-        public string URL { get; set; }
-        [DataMember]
         public DateTime TimeStamp { get; set; }
+        [DataMember][BsonDictionaryOptions(DictionaryRepresentation.ArrayOfDocuments)]
+        public Dictionary<string, int> RankedResults { get; set; }
+        [DataMember]
+        public HttpStatusCode ServerResponse { get; set; }
+
+        public HTMLRecord(ObjectId userId, NewRecord details)
+            :base(details.URL, details.HtmlTags, details.Keywords)
+        {
+            this.UserId = userId;
+            TimeStamp = DateTime.UtcNow;
+        }
+    }
+
+    [DataContract]
+    public class NewRecord : Serializable
+    {
+        [DataMember]
+        public string URL { get; set; }
         [DataMember]
         public List<string> HtmlTags { get; set; }
         [DataMember]
         public List<string> Keywords { get; set; }
-        [DataMember][BsonDictionaryOptions(DictionaryRepresentation.ArrayOfDocuments)]
-        public Dictionary<string, int> RankedResults { get; set; }
 
-        public HTMLRecord(string url, DateTime timeStamp, List<string> tags, List<string> keywords)
+        public NewRecord(string url, List<string> tags, List<string> keywords)
         {
             this.URL = url;
-            this.TimeStamp = timeStamp;
             this.HtmlTags = tags;
             this.Keywords = keywords;
         }

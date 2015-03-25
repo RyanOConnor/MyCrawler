@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using System.Threading;
 using MongoDB.Bson;
 using System.Net;
+using MongoDB.Driver;
 
 namespace WebApplication
 {
@@ -20,6 +21,8 @@ namespace WebApplication
                 CrawlerManager.Instance.AllowCrawlerIP(ep);
             }
 
+            Database.Instance.Start();
+
             Thread dataThread = new Thread(DataManager.Instance.Start);
             dataThread.Start();
 
@@ -29,7 +32,148 @@ namespace WebApplication
             Thread crawlerThread = new Thread(() => CrawlerManager.Instance.StartListener(ipAd));
             crawlerThread.Start();
 
-            HTMLRecord page1 = new HTMLRecord("http://www.reddit.com/",
+            UserManager.Start();
+
+
+            CreateLargeAmountOfUsers();
+
+
+        }
+
+        public static void CreateLargeAmountOfUsers()
+        {
+            const int NumberOfUsers = 999;
+            string baseName = "user";
+            string basePassword = "password";
+
+            for(int i = 0; i < NumberOfUsers; i++)
+            {
+                string userName = baseName + i.ToString();
+                string password = basePassword + i.ToString();
+                UserManager.CreateUser(userName, Encoding.UTF8.GetBytes(password));
+            }
+
+            MongoCursor<User> userRecords = UserManager.UserCollection.FindAll();
+            List<NewRecord> testRecords = GenerateUserInput();
+
+            foreach (User user in userRecords)
+            {
+                foreach (NewRecord record in testRecords)
+                {
+                    UserManager.AddLinkToUser(user.Id, user.UserName, record);
+                }
+            }
+        }
+
+        public static void CreateTestUsers()
+        {
+            const int RecordsPerUser = 3;
+            string baseName = "user";
+            string basePassword = "password";
+
+            List<NewRecord> testRecords = GenerateUserInput();
+            int numUsers = testRecords.Count / 3;
+
+            for (int i = 0; i < numUsers; i++)
+            {
+                string userName = baseName + i.ToString();
+                string password = basePassword + i.ToString();
+                UserManager.CreateUser(userName, Encoding.UTF8.GetBytes(password));
+            }
+
+            List<List<NewRecord>> recordSegments = new List<List<NewRecord>>();
+            int counter = 0;
+            while(counter < testRecords.Count)
+            {
+                List<NewRecord> temp = new List<NewRecord>();
+                for(int j = counter; j < counter + RecordsPerUser; j++)
+                {
+                    temp.Add(testRecords[j]);
+                }
+                recordSegments.Add(temp);
+                counter += 3;
+            }
+
+            MongoCursor<User> userRecords = UserManager.UserCollection.FindAll();
+
+            int iterator = 0;
+            foreach(User user in userRecords)
+            {
+                foreach(NewRecord record in recordSegments[iterator])
+                {
+                    UserManager.AddLinkToUser(user.Id, user.UserName, record);
+                }
+                iterator++;
+            }
+        }
+
+        public static List<NewRecord> GenerateUserInput()
+        {
+            NewRecord page1 = new NewRecord("http://www.reddit.com/",
+                                        new List<string>() { "a", ".title", "href" },
+                                        new List<string>() { "java", "c#", "javascript", "parallelism", "threading", "project", "big four", "facebook" });
+            NewRecord page2 = new NewRecord("http://www.wired.com/",
+                                        new List<string>() { "a", ".clearfix", "href" },
+                                        new List<string>() { "tesla", "facebook", "snapchat", "virus" });
+            NewRecord page3 = new NewRecord("http://www.cnn.com/tech",
+                                        new List<string>() { "h3", ".cd__headline", "a", "href" },
+                                        new List<string>() { "tesla", "facebook", "snapchat", "virus" });
+            NewRecord page4 = new NewRecord("https://news.ycombinator.com/",
+                                        new List<string>() { "td", ".title", "a", "href" },
+                                        new List<string>() { "tesla", "facebook", "snapchat", "virus" });
+            NewRecord page5 = new NewRecord("http://www.reddit.com/?count=50&after=t3_2y5kn8",
+                                       new List<string>() { "a", ".title", "href" },
+                                       new List<string>() { "java", "c#", "javascript", "parallelism", "threading", "project", "big four", "facebook" });
+            NewRecord page6 = new NewRecord("http://www.reddit.com/?count=100&after=t3_2y5d88",
+                                       new List<string>() { "a", ".title", "href" },
+                                       new List<string>() { "java", "c#", "javascript", "parallelism", "threading", "project", "big four", "facebook" });
+            NewRecord page8 = new NewRecord("http://youtube.com/",
+                                        new List<string>() { "a", ".yt-uix-sessionlink", "href" },
+                                        new List<string>() { "tesla", "facebook", "snapchat", "virus" });
+            NewRecord page9 = new NewRecord("http://www.bbcamerica.com/",
+                                        new List<string>() { "h3", ".entry-title", "a", "href" },
+                                        new List<string>() { "tesla", "facebook", "snapchat", "virus" });
+            NewRecord page14 = new NewRecord("https://en.forums.wordpress.com/forum/themes",
+                                        new List<string>() { "td", ".topictitle", "a", "href" },
+                                        new List<string>() { "tesla", "facebook", "snapchat", "virus" });
+            NewRecord page15 = new NewRecord("http://yahoo.com/",
+                                        new List<string>() { "h3", ".fw-b", "a", "href" },
+                                        new List<string>() { "tesla", "facebook", "snapchat", "virus" });
+            NewRecord page16 = new NewRecord("http://www.amazon.com/s/ref=nb_sb_noss_1?url=search-alias%3Daps&field-keywords=stonewall+aioli",
+                                        new List<string>() { "a", ".a-link-normal", "href" },
+                                        new List<string>() { "tesla", "facebook", "snapchat", "virus" });
+            NewRecord page17 = new NewRecord("https://www.flickr.com/20under20/",
+                                        new List<string>() { "a", ".artist-name", "href" },
+                                        new List<string>() { "tesla", "facebook", "snapchat", "virus" });
+            NewRecord page18 = new NewRecord("http://pinterest.com/",
+                                        new List<string>() { "a", ".pinImageWrapper", "href" },
+                                        new List<string>() { "tesla", "facebook", "snapchat", "virus" });
+            NewRecord page19 = new NewRecord("http://alexbeardstudio.tumblr.com/post/112441953420/close-up-on-the-new-fish-painting-the-gestural",
+                                        new List<string>() { "a", ".avatar_frame", "href" },
+                                        new List<string>() { "tesla", "facebook", "snapchat", "virus" });
+            NewRecord page21 = new NewRecord("https://discussions.apple.com/community/apple_pay/using_apple_pay_in_stores",
+                                        new List<string>() { "td", ".jive-table-cell-title", "a", "href" },
+                                        new List<string>() { "tesla", "facebook", "snapchat", "virus" });
+            NewRecord page22 = new NewRecord("http://myspace.com/",
+                                        new List<string>() { "a", ".link", "href" },
+                                        new List<string>() { "tesla", "facebook", "snapchat", "virus" });
+            NewRecord page23 = new NewRecord("http://vimeo.com/",
+                                        new List<string>() { "a", ".responsive_border_lg", "href" },
+                                        new List<string>() { "tesla", "facebook", "snapchat", "virus" });
+            NewRecord page25 = new NewRecord("http://digg.com/",
+                                        new List<string>() { "a", ".story-title-link", "href" },
+                                        new List<string>() { "tesla", "facebook", "snapchat", "virus" });
+
+            List<NewRecord> testRecords = new List<NewRecord> { page1, page2, page3, page4, page5, page6, page8,
+                                                                page9, page14, page15, page16, page17, page18,
+                                                                page19, page21, page22, page23, page25};
+
+            return testRecords;
+        }
+
+        public static void GenerateHTMLRecords()
+        {
+            /*HTMLRecord page1 = new HTMLRecord("http://www.reddit.com/",
                                         DateTime.Now,
                                         new List<string>() { "a", ".title", "href" },
                                         new List<string>() { "java", "c#", "javascript", "parallelism", "threading", "project", "big four", "facebook" });
@@ -104,7 +248,7 @@ namespace WebApplication
             HTMLRecord page25 = new HTMLRecord("http://digg.com/",
                                         DateTime.Now,
                                         new List<string>() { "a", ".story-title-link", "href" },
-                                        new List<string>() { "tesla", "facebook", "snapchat", "virus" });
+                                        new List<string>() { "tesla", "facebook", "snapchat", "virus" });*/
 
             /*CrawlerManager.Instance.DistributeWork(page8);
             CrawlerManager.Instance.DistributeWork(page9);

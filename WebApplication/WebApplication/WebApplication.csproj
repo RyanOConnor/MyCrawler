@@ -54,7 +54,9 @@
   <ItemGroup>
     <Compile Include="Authorize.cs" />
     <Compile Include="CrawlerManager.cs" />
+    <Compile Include="Database.cs" />
     <Compile Include="DataManager.cs" />
+    <Compile Include="JSON.cs" />
     <Compile Include="PriorityQueue.cs" />
     <Compile Include="Program.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />

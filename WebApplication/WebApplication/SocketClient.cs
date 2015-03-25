@@ -40,6 +40,7 @@ namespace WebApplication
             catch (Exception ex)
             {
                 Console.WriteLine(ex.ToString());
+                throw ex;
             }
         }
 
@@ -57,6 +58,7 @@ namespace WebApplication
             catch (Exception ex)
             {
                 Console.WriteLine(ex.ToString());
+                throw ex;
             }
         }
 
@@ -76,6 +78,9 @@ namespace WebApplication
             }
             else
             {
+                this.sendSocket.socket.Shutdown(SocketShutdown.Both);
+                this.sendSocket.socket.Close();
+
                 this.StartClient(ipAddress);
                 this.Send(message);
                 throw new Exception();
@@ -98,6 +103,7 @@ namespace WebApplication
             catch (Exception ex)
             {
                 Console.WriteLine(ex.ToString());
+                throw ex;
             }
         }
     }
