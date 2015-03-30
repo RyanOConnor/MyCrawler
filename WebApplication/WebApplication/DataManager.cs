@@ -16,10 +16,10 @@ namespace WebApplication
 {
     public class DataManager
     {
-        private MongoCollection<HTMLRecord> CrawlCollection { get; set; }
+        private MongoCollection<HtmlRecord> CrawlCollection { get; set; }
         private PriorityQueue<DateTime, ObjectId> jobSchedule = new PriorityQueue<DateTime, ObjectId>();
         private ManualResetEvent processJobs = new ManualResetEvent(false);
-        public const int UPDATE_FREQUENCY = 4;
+        public const int UPDATE_FREQUENCY = 2;
         private static DataManager _instance;
         public static DataManager Instance
         {
@@ -33,7 +33,7 @@ namespace WebApplication
 
         public void Start()
         {
-            CrawlCollection = Database.Instance.GetCollection<HTMLRecord>("CrawlData");
+            CrawlCollection = Database.Instance.GetCollection<HtmlRecord>("CrawlData");
 
             LoadJobSchedule();
             Thread scheduler = new Thread(ScheduleJobs);
@@ -42,7 +42,7 @@ namespace WebApplication
 
         public void AddCrawlerEvent(CrawlerNode node)
         {
-            node.UpdateReceived += new EventHandler<HTMLRecord>(UpdateEntry);
+            node.UpdateReceived += new EventHandler<HtmlRecord>(UpdateEntry);
         }
 
         private void LoadJobSchedule()
@@ -51,11 +51,14 @@ namespace WebApplication
             {
                 lock (CrawlCollection)  // MongoCursor is NOT thread safe
                 {
-                    MongoCursor<HTMLRecord> records = CrawlCollection.FindAll();
-                    foreach (HTMLRecord record in records)
+                    MongoCursor<HtmlRecord> records = CrawlCollection.FindAll();
+                    int counter = 0;
+                    foreach (HtmlRecord record in records)
                     {
                         EnqueueJobSchedule(record);
+                        counter++;
                     }
+                    Console.WriteLine("Loaded {0} objects into job schedule", counter);
                 }
             }
         }
@@ -73,21 +76,42 @@ namespace WebApplication
 
                 if (job.Key > DateTime.UtcNow)
                 {
-                    double ms = (job.Key - DateTime.UtcNow).TotalMilliseconds;
                     Thread.Sleep((int)(job.Key - DateTime.UtcNow).TotalMilliseconds);
                 }
 
-                HTMLRecord record = RetrieveEntry(job.Value);
+                HtmlRecord record = RetrieveEntryById(job.Value);
                 CrawlerManager.Instance.DistributeWork(record);
                 processJobs.Reset();
             }
         }
 
-        public HTMLRecord CreateEntry(ObjectId userId, NewRecord newRecord)
+        public KeyValuePair<ObjectId, HtmlResults> CreateEntry(NewRecord newRecord)
         {
-            HTMLRecord newHtmlRecord = new HTMLRecord(userId, newRecord);
-            CrawlCollection.Save(newHtmlRecord);
-            return newHtmlRecord;
+            MongoCursor<HtmlRecord> records = CrawlCollection.FindAs<HtmlRecord>(Query.EQ("URL", newRecord.URL));
+
+            if (records.Count() == 0)
+            {
+                HtmlRecord newHtmlRecord = new HtmlRecord(newRecord.URL);
+                HtmlResults newResults = newHtmlRecord.AddLinkOwner(newRecord);
+                CrawlCollection.Save(newHtmlRecord);
+                EnqueueJobSchedule(newHtmlRecord);
+                KeyValuePair<ObjectId, HtmlResults> pair = new KeyValuePair<ObjectId, HtmlResults>
+                                                              (key: newHtmlRecord.Id, value: newResults);
+                return pair;
+            }
+            else if (records.Count() == 1)
+            {
+                HtmlRecord recordToModify = records.First();
+                HtmlResults newResults = recordToModify.AddLinkOwner(newRecord);
+                CrawlCollection.Save(recordToModify);
+                KeyValuePair<ObjectId, HtmlResults> pair = new KeyValuePair<ObjectId, HtmlResults>
+                                                               (key: recordToModify.Id, value: newResults);
+                return pair;
+            }
+            else
+            {
+                throw new Exception();
+            }
         }
 
         public void ModifyEntry(ObjectId urlid, object changes)
@@ -95,12 +119,12 @@ namespace WebApplication
 
         }
 
-        public HTMLRecord RetrieveEntry(ObjectId id)
+        public HtmlRecord RetrieveEntryById(ObjectId id)
         {
             try
             {
                 IMongoQuery queryId = Query.EQ("_id", id);
-                HTMLRecord entity = CrawlCollection.FindOne(queryId);
+                HtmlRecord entity = CrawlCollection.FindOne(queryId);
                 return entity;
             }
             catch(Exception ex)
@@ -110,14 +134,14 @@ namespace WebApplication
             }
         }
 
-        public void UpdateEntry(object sender, HTMLRecord page)
+        public void UpdateEntry(object sender, HtmlRecord page)
         {
             try
             {
                 page.TimeStamp = DateTime.UtcNow.AddMinutes(UPDATE_FREQUENCY);
                 EnqueueJobSchedule(page);
-                CrawlCollection.Save(page);
-                UserManager.UpdateUserLink(page.UserId, page);
+                CrawlCollection.Save(typeof(HtmlRecord), page);
+                UserManager.Instance.UpdateUsersByRecord(page);
             }
             catch(Exception ex)
             {
@@ -126,27 +150,7 @@ namespace WebApplication
             }
         }
 
-        /*public HTMLRecord findUrlById(ObjectId id)
-        {
-            return new HTMLRecord("", DateTime.Now, new List<string>(),new List<string>());
-        }
-
-        public HTMLRecord findUrlByUrl(string url)
-        {
-            return new HTMLRecord( "", DateTime.Now, new List<string>(), new List<string>());
-        }
-
-        public List<HTMLRecord> findMultipleByDateTime(List<DateTime> timeStamps)
-        {
-            return new List<HTMLRecord>();
-        }
-
-        public HTMLRecord findSingleByDateTime(DateTime timeStamp)
-        {
-            return new HTMLRecord( "", DateTime.Now, new List<string>(), new List<string>());
-        }*/
-
-        public void EnqueueJobSchedule(HTMLRecord record)
+        public void EnqueueJobSchedule(HtmlRecord record)
         {
             lock(jobSchedule)
             {
@@ -164,44 +168,147 @@ namespace WebApplication
         }
     }
 
-    
-    [DataContract]
-    public class HTMLRecord : NewRecord, Serializable
+    public class HtmlRecord : Serializable
     {
-        [DataMember]
-        public ObjectId UserId { get; private set; }
-        [DataMember][BsonId]
+        [BsonId]
         public ObjectId Id { get; set; }
-        [DataMember]
+        public string URL { get; set; }
+        public Uri Domain { get; set; }
         public DateTime TimeStamp { get; set; }
-        [DataMember][BsonDictionaryOptions(DictionaryRepresentation.ArrayOfDocuments)]
-        public Dictionary<string, int> RankedResults { get; set; }
-        [DataMember]
+        [BsonDictionaryOptionsAttribute(DictionaryRepresentation.ArrayOfDocuments)]
+        public Dictionary<ObjectId, HtmlResults> Results { get; set; }
         public HttpStatusCode ServerResponse { get; set; }
 
-        public HTMLRecord(ObjectId userId, NewRecord details)
-            :base(details.URL, details.HtmlTags, details.Keywords)
+        public HtmlRecord(string url)
         {
-            this.UserId = userId;
+            this.URL = url;
+            Domain = new Uri(url);
             TimeStamp = DateTime.UtcNow;
+            Results = new Dictionary<ObjectId, HtmlResults>();
+        }
+
+        public HtmlResults AddLinkOwner(NewRecord newRecord)
+        {
+            HtmlResults userResults = null;
+            IEnumerable<HtmlResults> existingResults = Results.Values.Where(val => val.HtmlTags
+                                                                     .SequenceEqual(newRecord.HtmlTags));
+            if(existingResults.Count() == 1)
+            {
+                userResults = existingResults.First(x => x != null);
+                if (newRecord.RecordType == typeof(TextUpdate) && userResults.GetType() == typeof(TextUpdate))
+                {
+                    userResults.AddResultsOwner(newRecord.UserId);
+                    return userResults;
+                }
+                else if (newRecord.RecordType == typeof(LinkFeed) && userResults.GetType() == typeof(LinkFeed))
+                {
+                    LinkFeed feed = userResults as LinkFeed;
+                    if(feed.Keywords.SequenceEqual(newRecord.Keywords))
+                    {
+                        feed.AddResultsOwner(newRecord.UserId);
+                        return feed;
+                    }
+                }
+            }
+            else if(existingResults.Count() == 0)
+            {
+                userResults = null;
+
+                if(newRecord.RecordType == typeof(TextUpdate))
+                {
+                    userResults = new TextUpdate(newRecord);
+                }
+                else if(newRecord.RecordType == typeof(LinkFeed))
+                {
+                    userResults = new LinkFeed(newRecord);
+                }
+
+                Results.Add(userResults.JobId, userResults);
+                return userResults;
+            }
+
+            return userResults;
+        }
+
+        public HtmlResults FindExistingEntry(HtmlResults newResults)
+        {
+            var existingEntry = Results.Where(val => val.GetType() == newResults.GetType())
+                                       .Where(val => val.Value.HtmlTags.Intersect(newResults.HtmlTags)
+                                                                       .Count() == newResults.HtmlTags.Count());
+            if (existingEntry.Count() == 1)
+                return existingEntry.First(x => x.Value != null).Value;
+            else
+                throw new Exception();
+        }
+
+        public List<HtmlResults> GetResultsByType(Type type)
+        {
+            if (type == typeof(LinkFeed) || type == typeof(TextUpdate))
+                return Results.Values.Where(val => val.GetType() == type).ToList();
+            else
+                return null;
         }
     }
 
-    [DataContract]
-    public class NewRecord : Serializable
+    [BsonKnownTypes(typeof(LinkFeed), typeof(TextUpdate))]
+    public class HtmlResults : Serializable
     {
-        [DataMember]
-        public string URL { get; set; }
-        [DataMember]
+        [BsonId]
+        public ObjectId JobId { get; set; }
+        public List<ObjectId> UserIDs { get; set; }
+        public Uri Domain { get; set; }
         public List<string> HtmlTags { get; set; }
-        [DataMember]
-        public List<string> Keywords { get; set; }
+        public bool ChangeInContent { get; set; }
 
-        public NewRecord(string url, List<string> tags, List<string> keywords)
+        public HtmlResults(ObjectId userid, string url, List<string> tags)
         {
-            this.URL = url;
-            this.HtmlTags = tags;
+            JobId = ObjectId.GenerateNewId();
+            UserIDs = new List<ObjectId>();
+            UserIDs.Add(userid);
+            Domain = new Uri(url);
+            HtmlTags = tags;
+        }
+
+        public void AddResultsOwner(ObjectId userid)
+        {
+            UserIDs.Add(userid);
+        }
+    }
+
+    public class LinkFeed : HtmlResults, Serializable
+    {
+        public List<string> Keywords { get; set; }
+        [BsonDictionaryOptionsAttribute(DictionaryRepresentation.ArrayOfDocuments)]
+        public Dictionary<string, int> RankedResults { get; set; }
+
+        public LinkFeed(ObjectId userid, string url, List<string> tags, List<string> keywords)
+            :base(userid, url, tags)
+        {
             this.Keywords = keywords;
+        }
+
+        public LinkFeed(NewRecord newRecord)
+            : base(newRecord.UserId, newRecord.URL, newRecord.HtmlTags)
+        {
+            this.Keywords = newRecord.Keywords;
+        }
+    }
+
+    public class TextUpdate : HtmlResults, Serializable
+    {
+        public string PreviousText { get; set; }
+        public string CurrentText { get; set; }
+
+        public TextUpdate(ObjectId userid, string url, List<string> tags, string innerText)
+            :base(userid, url, tags)
+        {
+            PreviousText = innerText;
+        }
+
+        public TextUpdate(NewRecord newRecord)
+            : base(newRecord.UserId, newRecord.URL, newRecord.HtmlTags)
+        {
+            PreviousText = newRecord.EmbeddedText;
         }
     }
 }

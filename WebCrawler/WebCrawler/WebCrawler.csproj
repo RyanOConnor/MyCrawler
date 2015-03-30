@@ -70,6 +70,7 @@
     <Compile Include="Domain.cs" />
     <Compile Include="SocketServer.cs" />
     <Compile Include="SocketClient.cs" />
+    <Compile Include="UserResults.cs" />
     <Compile Include="WebCrawler.cs" />
     <Compile Include="HTMLPage.cs" />
   </ItemGroup>

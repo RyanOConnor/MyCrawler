@@ -92,6 +92,7 @@ namespace WebCrawler
                     var invokedMethod = (EventHandler<MessageEventArgs>)async.AsyncDelegate;
                     invokedMethod.EndInvoke(result);
                 }
+
                 Socket server = receiveSocket.socket;
                 receiveSocket = new SocketHandle(server);
                 receiveSocket.socket.BeginReceive(receiveSocket.buffer, 0, SocketHandle.BUFFER_SIZE, 0,
@@ -113,7 +114,7 @@ namespace WebCrawler
             { 
                 if (bytesRead > 0)
                 {
-                    socketHandle.str.Append(Encoding.UTF8.GetString(socketHandle.buffer, 0, bytesRead));
+                    socketHandle.byteStream.Write(socketHandle.buffer, 0, bytesRead);
 
                     if (client.Available > 0)
                     {
@@ -122,16 +123,15 @@ namespace WebCrawler
                     }
                     else
                     {
-                        if (socketHandle.str.Length > 1)
+                        if (socketHandle.byteStream.Length > 1)
                         {
-                            string response = socketHandle.str.ToString();
-                            socketHandle.Reset();
-
                             EventHandler<MessageEventArgs> messageReceived = MessageReceived;
                             if (messageReceived != null)
                             {
-                                messageReceived.BeginInvoke(null, new MessageEventArgs(response), Receive, null);
+                                messageReceived.BeginInvoke(null, new MessageEventArgs(socketHandle.byteStream.ToArray()), Receive, null);
                             }
+
+                            socketHandle.Reset();
                         }
                     }
                 }
@@ -145,8 +145,8 @@ namespace WebCrawler
 
     public class MessageEventArgs : EventArgs
     {
-        public string Message { get; set; }
-        public MessageEventArgs(string message)
+        public byte[] Message { get; set; }
+        public MessageEventArgs(byte[] message)
         {
             this.Message = message;
         }

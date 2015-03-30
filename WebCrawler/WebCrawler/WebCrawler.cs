@@ -54,8 +54,8 @@ namespace WebCrawler
         {
             Thread startClient = new Thread(() => SocketClient.Instance.StartClient(ipAd));
             startClient.Start();
-            Thread responseProcess = new Thread(WebCrawler.Instance.SendResults);
-            responseProcess.Start();
+            //Thread responseProcess = new Thread(WebCrawler.Instance.SendResults);
+            //responseProcess.Start();
 
             while (status != CrawlerStatus.SHUTTING_DOWN)
             {
@@ -65,31 +65,32 @@ namespace WebCrawler
 
         public void OnClientConnection(object sender, MessageEventArgs args)
         {
-            SocketServer.Instance.StartListener(args.Message);
+            SocketServer.Instance.StartListener(Encoding.UTF8.GetString(args.Message));
         }
 
         public void OnServerConnection(object sender, EventArgs args)
         {
-            SocketClient.Instance.Send("ready");
+            SocketClient.Instance.Send(Encoding.UTF8.GetBytes("ready"));
         }
 
         public void OnMessageReceived(object sender, MessageEventArgs args)
         {
-            if(args.Message == "SHUTDOWN")
+            if(Encoding.UTF8.GetString(args.Message) == "ready")
+            {
+                ThreadPool.QueueUserWorkItem(Send);
+            }
+            else if (Encoding.UTF8.GetString(args.Message) == "SHUTDOWN")
             {
                 status = CrawlerStatus.SHUTTING_DOWN;
                 waitForShutdown.Set();
             }
-            else if(args.Message == "status")
-            {
-                SocketClient.Instance.Send(status.ToString());
-            }
             else
             {
-                HTMLPage page = JSON.Deserialize<HTMLPage>(args.Message);
+                HTMLPage page = BSON.Deserialize<HTMLPage>(args.Message);
                 Console.WriteLine("\nReceived: \n" + page.Domain.AbsoluteUri);
                 EnqueueWork(page);
-                SocketClient.Instance.Send("ready");
+
+                SocketClient.Instance.Send(Encoding.UTF8.GetBytes("ready"));
             }
         }
 
@@ -98,25 +99,19 @@ namespace WebCrawler
 
         }
 
-        public void SendResults()
+        public void Send(object obj)
         {
-            while(status != CrawlerStatus.SHUTTING_DOWN)
+            if (resultQueue.Count == 0)
+                waitForResults.WaitOne();
+
+            if (resultQueue.Count != 0)
             {
-                waitForResults.Reset();
-                if (resultQueue.Count == 0)
-                {
-                    status = CrawlerStatus.WAITING;
-                    waitForResults.WaitOne();
-                }
-                else
-                {
-                    status = CrawlerStatus.SENDING_DATA;
-                }
                 HTMLPage page = DequeueResult();
-                string json = JSON.Serialize<HTMLPage>(page);
-                SocketClient.Instance.Send(json);
-                Console.WriteLine("\nSent: \n" + page.Domain.AbsoluteUri);
+                byte[] bson = BSON.Serialize<HTMLPage>(page);
+                SocketClient.Instance.Send(bson);
+                Console.WriteLine("\nSent Data from: \n" + page.URL);
             }
+            waitForResults.Reset();
         }
 
         public void EnqueueWork(HTMLPage page)

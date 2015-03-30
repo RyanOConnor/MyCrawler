@@ -28,7 +28,7 @@ namespace WebCrawler
         {
             if (workQueue.Count != 0)
             {
-                HTMLPage page = workQueue.Dequeue();
+                HTMLPage page = Dequeue();
 
                 if (page.WaitTime != 0)
                     ThreadPool.QueueUserWorkItem(new WaitCallback(page.SleepThenUpdate));
@@ -44,7 +44,18 @@ namespace WebCrawler
 
         public void Enqueue(HTMLPage page)
         {
-            workQueue.Enqueue(page);
+            lock (workQueue)
+            {
+                workQueue.Enqueue(page);
+            }
+        }
+
+        private HTMLPage Dequeue()
+        {
+            lock(workQueue)
+            {
+                return workQueue.Dequeue();
+            }
         }
     }
 }

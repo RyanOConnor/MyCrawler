@@ -45,7 +45,7 @@ namespace WebCrawler
                 EventHandler<MessageEventArgs> connectedHandler = ClientConnected;
                 if(connectedHandler != null)
                 {
-                    connectedHandler(null, new MessageEventArgs(ipAddress));
+                    connectedHandler(null, new MessageEventArgs(Encoding.UTF8.GetBytes(ipAddress)));
                 }
             }
             catch(Exception ex)
@@ -76,21 +76,21 @@ namespace WebCrawler
             return !(sendSocket.Poll(1000, SelectMode.SelectRead) && sendSocket.Available == 0);
         }
 
-        public void Send(string message)
+        public void Send(byte[] message)
         {
-            byte[] byteData = Encoding.UTF8.GetBytes(message);
-
             if(IsConnected())
             {
-                sendSocket.BeginSend(byteData, 0, byteData.Length, 0, new AsyncCallback(SendCallBack), sendSocket);
-                //Console.WriteLine("Sent: \n" + message);
+                sendSocket.BeginSend(message, 0, message.Length, 0, new AsyncCallback(SendCallBack), sendSocket);
             }
             else
             {
-                SocketClient.Instance.sendSocket.Shutdown(SocketShutdown.Both);
-                SocketClient.Instance.sendSocket.Close();
+                //SocketClient.Instance.sendSocket.Shutdown(SocketShutdown.Both);
+                //SocketClient.Instance.sendSocket.Close();
 
-                SocketClient.Instance.StartClient(ipAddress);
+                //SocketClient.Instance.StartClient(ipAddress);
+
+                while (!IsConnected()) ;
+
                 SocketClient.Instance.Send(message);
                 throw new Exception();
             }
@@ -121,35 +121,18 @@ namespace WebCrawler
         public Socket socket { get; set; }
         public byte[] buffer { get; set; }
         public const int BUFFER_SIZE = 1024;
-        private StringBuilder strBuilder;
-        public StringBuilder str
-        {
-            get
-            {
-                lock (this.strBuilder)
-                {
-                    return this.strBuilder;
-                }
-            }
-            set
-            {
-                lock (this.strBuilder)
-                {
-                    this.strBuilder = value;
-                }
-            }
-        }
+        public MemoryStream byteStream { get; set; }
 
         public SocketHandle(Socket socket)
         {
             this.socket = socket;
             buffer = new byte[BUFFER_SIZE];
-            strBuilder = new StringBuilder();
+            byteStream = new MemoryStream();
         }
 
         public void Reset()
         {
-            this.strBuilder.Clear();
+            byteStream = new MemoryStream();
         }
     }
 

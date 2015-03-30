@@ -17,7 +17,7 @@ namespace WebApplication
     public enum CrawlerStatus { STARTING, WAITING, SENDING_DATA, SHUTTING_DOWN };
     public class CrawlerManager : SocketServer
     {
-        private BlockingCollection<HTMLRecord> sendQueue { get; set; }
+        private BlockingCollection<HtmlRecord> sendQueue { get; set; }
         private Dictionary<IPEndPoint, CrawlerNode> crawlerNodes { get; set; }
         private HashSet<IPEndPoint> nodeIPAddresses { get; set; }
         private static CrawlerManager _instance;
@@ -33,7 +33,7 @@ namespace WebApplication
 
         public CrawlerManager()
         {
-            sendQueue = new BlockingCollection<HTMLRecord>();
+            sendQueue = new BlockingCollection<HtmlRecord>();
             crawlerNodes = new Dictionary<IPEndPoint, CrawlerNode>();
             nodeIPAddresses = new HashSet<IPEndPoint>();
             this.MessageReceived += new EventHandler<MessageEventArgs>(OnMessageReceived);
@@ -87,7 +87,7 @@ namespace WebApplication
             }
         }
 
-        public void DistributeWork(HTMLRecord page)
+        public void DistributeWork(HtmlRecord page)
         {
             while (crawlerNodes.Count == 0) ;
             CrawlerNode node = crawlerNodes.OrderByDescending(x => x.Value.workQueue.Count).First().Value;
@@ -99,7 +99,7 @@ namespace WebApplication
             
         }
 
-        public void Enqueue(HTMLRecord page)
+        public void Enqueue(HtmlRecord page)
         {
             sendQueue.Add(page);
         }
@@ -108,16 +108,17 @@ namespace WebApplication
     public class CrawlerNode : SocketServer
     {
         public string crawlerStatus { get; set; }
-        public BlockingCollection<HTMLRecord> workQueue { get; set; }
+        public BlockingCollection<HtmlRecord> workQueue { get; set; }
         public ManualResetEvent allowSend = new ManualResetEvent(false);
         public ManualResetEvent waitForWork = new ManualResetEvent(false);
-        public event EventHandler<HTMLRecord> UpdateReceived;
+        public AutoResetEvent allowDBUpdate = new AutoResetEvent(false);
+        public event EventHandler<HtmlRecord> UpdateReceived;
         private SocketClient crawlerClient { get; set; }
 
         public CrawlerNode(Socket socket)
         {
             this.receiveSocket = new SocketHandle(socket);
-            workQueue = new BlockingCollection<HTMLRecord>();
+            workQueue = new BlockingCollection<HtmlRecord>();
             this.MessageReceived += new EventHandler<MessageEventArgs>(OnMessageReceived);
             DataManager.Instance.AddCrawlerEvent(this);
             crawlerClient = new SocketClient();
@@ -125,41 +126,40 @@ namespace WebApplication
             crawlerClient.MessageSubmitted += new EventHandler(OnMessageSubmitted);
 
             IPEndPoint localEndPoint = socket.LocalEndPoint as IPEndPoint;
-            crawlerClient.StartClient(localEndPoint.Address.ToString());
+            crawlerClient.StartClient(localEndPoint.Address);
         }
 
         public void Start()
         {
             this.Receive(null);
-            //Thread sendThread = new Thread(this.SendWork);
-            //sendThread.Start();
         }
 
         public void OnClientConnected(object sender, EventArgs args)
         {
-
+            crawlerClient.Send(Encoding.UTF8.GetBytes("ready"));
         }
 
         public void OnMessageReceived(object sender, MessageEventArgs args)
         {
             try
             {
-                if (args.Message == "ready")
+                if (Encoding.UTF8.GetString(args.Message) == "ready")
                 {
-                    Thread send = new Thread(Send);
-                    send.Start();
+                    ThreadPool.QueueUserWorkItem(Send);
                 }
                 else
                 {
-                    HTMLRecord record = JSON.Deserialize<HTMLRecord>(args.Message);
+                    HtmlRecord record = BSON.Deserialize<HtmlRecord>(args.Message);
 
-                    EventHandler<HTMLRecord> updateReceived = UpdateReceived;
+                    EventHandler<HtmlRecord> updateReceived = UpdateReceived;
                     if (updateReceived != null)
                     {
-                        updateReceived(null, record);
+                        updateReceived.BeginInvoke(null, record, OnDatabaseUpdated, null);
                     }
 
                     Console.WriteLine("\n\tRecieved Data from: \n\t" + record.URL);
+
+                    crawlerClient.Send(Encoding.UTF8.GetBytes("ready"));
                 }
             }
             catch (Exception ex)
@@ -168,57 +168,38 @@ namespace WebApplication
             }
         }
 
+        public void OnDatabaseUpdated(IAsyncResult result)
+        {
+            var async = (System.Runtime.Remoting.Messaging.AsyncResult)result;
+            var invokedMethod = (EventHandler<HtmlRecord>)async.AsyncDelegate;
+            invokedMethod.EndInvoke(result);
+        }
+
+        public void Send(object obj)
+        {
+            if (workQueue.Count == 0)
+                allowSend.WaitOne();
+
+            if (workQueue.Count != 0)
+            {
+                HtmlRecord record = workQueue.Take();
+                byte[] bson = BSON.Serialize<HtmlRecord>(record);
+                crawlerClient.Send(bson);
+                Console.WriteLine("\nSent Data from: \n" + record.URL);
+            }
+            allowSend.Reset();
+        }
+
         public void OnMessageSubmitted(object sender, EventArgs args)
         {
 
         }
 
-        public void AddWork(HTMLRecord record)
+        public void AddWork(HtmlRecord record)
         {
             workQueue.Add(record);
             allowSend.Set();
         }
-
-        public void Send()
-        {
-            if (workQueue.Count == 0)
-                allowSend.WaitOne();
-
-            HTMLRecord record = workQueue.Take();
-            string json = JSON.Serialize<HTMLRecord>(record);
-            crawlerClient.Send(json);
-            Console.WriteLine("\nSent Data from: \n" + record.URL);
-
-            allowSend.Reset();
-        }
-
-        /*public void SendWork()
-        {
-            while(true)
-            {
-                if (workQueue.Count == 0)
-                {
-                    waitForWork.WaitOne();
-                }
-                
-                allowSend.WaitOne();
-
-                HTMLRecord record = null;
-                if(workQueue.TryDequeue(out record))
-                {
-                    string json = JSON.Serialize<HTMLRecord>(record);
-                    crawlerClient.Send(json);
-                    Console.WriteLine("\nSent Data from: \n" + record.URL);
-                }
-                else
-                {
-                    Console.WriteLine();
-                }
-
-                allowSend.Reset();
-                waitForWork.Reset();
-            }
-        }*/
     }
 }
 

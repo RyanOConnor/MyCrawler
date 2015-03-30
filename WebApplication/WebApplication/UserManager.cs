@@ -4,44 +4,62 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using System.Runtime.Serialization;
+using System.Threading;
 using MongoDB.Bson;
 using MongoDB.Driver;
 using MongoDB.Bson.Serialization.Attributes;
 using MongoDB.Bson.Serialization.Options;
 using MongoDB.Driver.Builders;
+using System.Diagnostics;
+using System.Net;
 
 namespace WebApplication
 {
     public class UserManager
     {
-        public enum queueStatus { createUser, findUserById, findUserByUserName, addLinkTouser, removeLinkFromUser, modifyUserLink, deleteUser };
-        public static MongoCollection<User> UserCollection { get; set; }
-        public Queue<KeyValuePair<User, queueStatus>> userWriteQueue { get; private set; }
-
-        public static void Start()
+        public enum QueueStatus { createUser, findUserById, findUserByUserName, addLinkTouser, removeLinkFromUser, modifyUserLink, deleteUser };
+        public SocketServer UserListener { get; set; }
+        public Queue<UserMessage> UserMessageQueue { get; set; }
+        private static UserManager _instance;
+        public static UserManager Instance
         {
-            UserCollection = Database.Instance.GetCollection<User>("UserData");
+            get
+            {
+                if (_instance == null)
+                    _instance = new UserManager();
+                return _instance;
+            }
         }
 
-        public static void CreateUser(string userName, byte[] inputPassword)
+        public void Start()
+        {
+            UserListener = new SocketServer();
+            UserListener.StartListener(IPAddress.Any);
+        }
+
+        public MongoCollection<User> GetCollection()
+        {
+            return Database.Instance.GetCollection<User>("UserData");
+        }
+
+        public void CreateUser(string userName, byte[] inputPassword)
         {
             try
             {
                 if (Authorize.PassesGuidelines(inputPassword))
                 {
-                    long count = UserCollection.FindAs<User>(Query.EQ("UserName", userName)).Count();
+                    long count = GetCollection().FindAs<User>(Query.EQ("UserName", userName)).Count();
                     if (count == 0)
                     {
                         byte[] salt = Authorize.GenerateSalt();
                         byte[] saltedHash = Authorize.GenerateSaltedHash(inputPassword, salt);
 
                         User newUser = new User(userName, saltedHash, salt);
-                        UserCollection.Save(newUser);
+                        GetCollection().Save(newUser);
                     }
                     else
                     {
                         // Nofity user that username is taken
-                        Console.WriteLine();
                     }
                 }
                 else
@@ -57,12 +75,19 @@ namespace WebApplication
             }
         }
 
-        public static User FindUserByID(ObjectId userid)
+        public bool ValidateLoginAttempt(ObjectId userid, string username, byte[] password)
+        {
+            User user = FindUserByID(userid);
+            byte[] saltedHash = Authorize.GenerateSaltedHash(password, user.Salt);
+            return Authorize.IsValidHash(saltedHash, user.Password);
+        }
+
+        public User FindUserByID(ObjectId userid)
         {
             try
             {
                 IMongoQuery queryUser = Query.EQ("_id", userid);
-                User user = UserCollection.FindOne(queryUser);
+                User user = GetCollection().FindOne(queryUser);
                 return user;
             }
             catch(Exception ex)
@@ -72,36 +97,16 @@ namespace WebApplication
             }
         }
 
-        public static User findUserByUserName(string userName)
+        public void AddLinkToUser(ObjectId userid, string userName, NewRecord newRecord)
         {
-            // query db, return user object
-            return new User("", new byte[0], new byte[0]);
-        }
-
-         public string retrieveUserHash(ObjectId userid)
-        {
-            // query db for userid, return their hash value
-            return string.Empty;
-        }
-
-        public static void AddLinkToUser(ObjectId userid, string userName, NewRecord newRecord)
-        {
-            // query database for user
-            // create new "link" struct with values
-            // query Crawl data database for existing link
-            // if it doesn't exist then add this value to Crawl database with DataManager,
-            //      if it does then return it's ObjectId in crawl database
-            // add ObjectId and new link struct to Users dictionary
-            // save to database collection
             try
             {
                 User user = FindUserByID(userid);
-                HTMLRecord newHtmlRecord = user.AddHTMLRecord(newRecord);
+                bool addSuccessful = user.AddHTMLRecord(newRecord);
 
-                if (newHtmlRecord != null)
+                if (addSuccessful)
                 {
-                    UserCollection.Save(user);
-                    CrawlerManager.Instance.DistributeWork(newHtmlRecord);
+                    GetCollection().Save(user);
                 }
                 else
                 {
@@ -116,91 +121,128 @@ namespace WebApplication
             }
         }
 
-        public static void UpdateUserLink(ObjectId userId, HTMLRecord record)
+        public void UpdateUsersByRecord(HtmlRecord record)
         {
-            try
+            Stopwatch sw = new Stopwatch();
+            sw.Start();
+            foreach(HtmlResults results in record.Results.Values)
             {
-                User user = FindUserByID(userId);
-                user.UpdateHtmlRecord(record);
-                UserCollection.Save(user);
+                IMongoQuery query = Query.EQ("Links.v._id", results.JobId);
+                MongoCursor<User> users = GetCollection().FindAs<User>(query);
+
+                foreach(User user in users)
+                {
+                    user.UpdateResults(record.Id, results);
+                    GetCollection().Save(user);             // Instead of writing, just notify users
+                }
+                Console.WriteLine("\n\tUpdated {0} user records with {1}", users.Count(), record.URL);
             }
-            catch(Exception ex)
-            {
-                Console.WriteLine(ex.ToString());
-                throw ex;
-            }
+            sw.Stop();
+            Console.WriteLine("{0}ms", sw.ElapsedMilliseconds);
         }
 
-        public void modifyUserLink(ObjectId userid, string userName, ObjectId urlid, string url, object changes)
+        public void removeLinkFromUser(ObjectId userid, HtmlResults results)
         {
-            // change users link struct
+            User user = FindUserByID(userid);
+            user.RemoveLink(results);
+            GetCollection().Save(user);
         }
 
-        public void removeLinkFromUser(ObjectId userid, string userName, ObjectId urlid, string url)
+        public void DeleteUser(ObjectId userid, string userName, string passwordHash)
         {
-            // query database for user
-            // search Dictionary for url stringid or inside struct for url string
-            // delete that Dictionary<object, link> pair
-            // save the database collection
-        }
-
-        public void deleteUser(ObjectId userid, string userName, string passwordHash)
-        {
-            // query for userid
-            // remove user
-            // save database collection
+            IMongoQuery query = Query.EQ("_id", userid);
+            // Remove users information from crawl data
+            GetCollection().Remove(query);
         }
     }
 
-    [DataContract]
     public class User : Serializable
     {
-        [DataMember][BsonId]
+        [BsonId]
         public ObjectId Id { get; private set; }
-        [DataMember]
         public string UserName { get; private set; }
-        [DataMember]
         public byte[] Password { get; private set; }
-        [DataMember]
         public byte[] Salt { get; private set; }
-        [DataMember][BsonDictionaryOptions(DictionaryRepresentation.ArrayOfDocuments)]
-        public Dictionary<ObjectId, HTMLRecord> Links { get; private set; }
+        [BsonDictionaryOptions(DictionaryRepresentation.ArrayOfDocuments)]
+        public Dictionary<ObjectId, HtmlResults> Links { get; private set; }
 
         public User(string userName, byte[] passwordHash, byte[] salt)
         {
             this.UserName = userName;
             this.Password = passwordHash;
             this.Salt = salt;
-            Links = new Dictionary<ObjectId, HTMLRecord>();
-        }   
+            Links = new Dictionary<ObjectId, HtmlResults>();
+        }
 
-        public HTMLRecord AddHTMLRecord(NewRecord record)
+        public bool AddHTMLRecord(NewRecord newRecord)
         {
-            HTMLRecord htmlRecord = null;
-            if(!Links.Any(pair => pair.Value.URL == record.URL))
+            if(!Links.Any(pair => pair.Value.Domain.OriginalString == newRecord.URL &&
+                                  pair.Value.HtmlTags.SequenceEqual(newRecord.HtmlTags)))
             {
-                htmlRecord = DataManager.Instance.CreateEntry(this.Id, record);
-                Links.Add(htmlRecord.Id, htmlRecord);
+                KeyValuePair<ObjectId, HtmlResults> newResults = DataManager.Instance.CreateEntry(newRecord);
+                Links.Add(newResults.Key, newResults.Value);
+                return true;
             }
             else
             {
-                Console.WriteLine("User: {0}\nLink Already Exists: {1}", UserName, record.URL);
-                throw new Exception();
+                Console.WriteLine("User: {0}\nLink Already Exists: {1}", UserName, newRecord.URL);
+                return false;
             }
-
-            return htmlRecord;
         }
 
-        public void UpdateHtmlRecord(HTMLRecord record)
+        public void UpdateResults(ObjectId recordId, HtmlResults results)
         {
-            if(Links.ContainsKey(record.Id))
+            if(Links.ContainsKey(recordId))
             {
-                Links[record.Id] = record;
+                Links[recordId] = results;
             }
             else
             {
                 throw new Exception();
             }
         }
+
+        public void RemoveLink(HtmlResults results)
+        {
+            if(Links.ContainsKey(results.JobId))
+            {
+                Links.Remove(results.JobId);
+            }
+            else
+            {
+                throw new Exception();
+            }
+        }
+
+    }
+
+    public class NewRecord : Serializable
+    {
+        [BsonId]
+        public ObjectId UserId { get; set; }
+        public Type RecordType { get; set; }
+        public string URL { get; set; }
+        public List<string> HtmlTags { get; set; }
+        public List<string> Keywords { get; set; }
+        public string EmbeddedText { get; set; }
+
+        public NewRecord(Type type, string url, List<string> tags, List<string> keywords, string innerText)
+        {
+            RecordType = type;
+            URL = url;
+            HtmlTags = tags;
+            Keywords = keywords;
+            EmbeddedText = innerText;
+        }
+
+        public void AddUserId(ObjectId id)
+        {
+            UserId = id;
+        }
+    }
+
+    public class UserMessage : EventArgs
+    {
+
     }
 }

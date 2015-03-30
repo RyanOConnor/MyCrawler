@@ -6,22 +6,22 @@ using System.Threading.Tasks;
 using System.Net.Sockets;
 using System.Net;
 using System.Threading;
+using System.IO;
 
 namespace WebApplication
 {
     public class SocketClient
     {
         public SocketHandle sendSocket { get; private set; }
-        public string ipAddress { get; set; }
+        public IPAddress ipAddress { get; set; }
         private ManualResetEvent ConnectDone = new ManualResetEvent(false);
         public event EventHandler ClientConnected;
         public event EventHandler MessageSubmitted;
 
-        public void StartClient(string ipAd)
+        public void StartClient(IPAddress ipAdd)
         {
-            ipAddress = ipAd;
-            IPAddress ip = IPAddress.Parse(ipAddress);
-            IPEndPoint endPoint = new IPEndPoint(ip, 11001);
+            ipAddress = ipAdd;
+            IPEndPoint endPoint = new IPEndPoint(ipAdd, 11001);
 
             Socket client = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
             sendSocket = new SocketHandle(client);
@@ -67,21 +67,21 @@ namespace WebApplication
             return sendSocket.socket.Poll(1000, SelectMode.SelectWrite);
         }
 
-        public void Send(string message)
+        public void Send(byte[] message)
         {
-            byte[] byteData = Encoding.UTF8.GetBytes(message);
-
             if (IsConnected())
             {
-                sendSocket.socket.BeginSend(byteData, 0, byteData.Length, 0, new AsyncCallback(SendCallBack), sendSocket.socket);
-                //Console.WriteLine("Sent: \n" + message);
+                sendSocket.socket.BeginSend(message, 0, message.Length, 0, new AsyncCallback(SendCallBack), sendSocket.socket);
             }
             else
             {
-                this.sendSocket.socket.Shutdown(SocketShutdown.Both);
-                this.sendSocket.socket.Close();
+                //this.sendSocket.socket.Shutdown(SocketShutdown.Both);
+                //this.sendSocket.socket.Close();
 
-                this.StartClient(ipAddress);
+                //this.StartClient(ipAddress);
+
+                while (!IsConnected()) ;
+
                 this.Send(message);
                 throw new Exception();
             }
@@ -113,35 +113,18 @@ namespace WebApplication
         public Socket socket { get; set; }
         public byte[] buffer { get; set; }
         public const int BUFFER_SIZE = 1024;
-        private StringBuilder strBuilder;
-        public StringBuilder str
-        {
-            get
-            {
-                lock (this.strBuilder)
-                {
-                    return this.strBuilder;
-                }
-            }
-            set
-            {
-                lock (this.strBuilder)
-                {
-                    this.strBuilder = value;
-                }
-            }
-        }
+        public MemoryStream byteStream { get; set; }
 
         public SocketHandle(Socket socket)
         {
             this.socket = socket;
             buffer = new byte[BUFFER_SIZE];
-            strBuilder = new StringBuilder();
+            byteStream = new MemoryStream();
         }
 
         public void Reset()
         {
-            this.strBuilder.Clear();
+            byteStream = new MemoryStream();
         }
     }
 }

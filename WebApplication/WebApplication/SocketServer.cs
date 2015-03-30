@@ -14,18 +14,17 @@ namespace WebApplication
     public class SocketServer
     {
         public SocketHandle receiveSocket { get; set; }
-        private string ipAddress { get; set; }
+        private IPAddress ipAddress { get; set; }
         protected ManualResetEvent listenerSignal = new ManualResetEvent(false);
         protected ManualResetEvent connectDone = new ManualResetEvent(false);
         protected ManualResetEvent sendDone = new ManualResetEvent(false);
         protected ManualResetEvent receiveDone = new ManualResetEvent(false);
         public event EventHandler<MessageEventArgs> MessageReceived;
 
-        public void StartListener(string ipAd)
+        public void StartListener(IPAddress ipAdd)
         {
-            ipAddress = ipAd;
-            IPAddress ip = IPAddress.Parse(ipAddress);
-            IPEndPoint endPoint = new IPEndPoint(ip, 11000);
+            ipAddress = ipAdd;
+            IPEndPoint endPoint = new IPEndPoint(ipAddress, 11000);
 
             Console.WriteLine("Local address and port: {0}", endPoint.ToString());
 
@@ -107,7 +106,7 @@ namespace WebApplication
             {
                 if (bytesRead > 0)
                 {
-                    socketHandle.str.Append(Encoding.UTF8.GetString(socketHandle.buffer, 0, bytesRead));
+                    socketHandle.byteStream.Write(socketHandle.buffer, 0, bytesRead);
 
                     if (server.Available > 0)
                     {
@@ -116,16 +115,15 @@ namespace WebApplication
                     }
                     else
                     {
-                        if (socketHandle.str.Length > 1)
+                        if (socketHandle.byteStream.Length > 1)
                         {
-                            string message = socketHandle.str.ToString();
-                            socketHandle.Reset();
-
                             EventHandler<MessageEventArgs> messageReceived = MessageReceived;
                             if (messageReceived != null)
                             {
-                                messageReceived.BeginInvoke(null, new MessageEventArgs(message), Receive, null);
+                                messageReceived.BeginInvoke(null, new MessageEventArgs(socketHandle.byteStream.ToArray()), Receive, null);
                             }
+
+                            socketHandle.Reset();
                         }
                     }
                 }
@@ -144,8 +142,8 @@ namespace WebApplication
     }
     public class MessageEventArgs : EventArgs
     {
-        public string Message { get; set; }
-        public MessageEventArgs(string message)
+        public byte[] Message { get; set; }
+        public MessageEventArgs(byte[] message)
         {
             this.Message = message;
         }

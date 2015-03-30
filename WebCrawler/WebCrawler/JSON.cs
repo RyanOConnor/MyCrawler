@@ -5,6 +5,8 @@ using System.Text;
 using System.Threading.Tasks;
 using System.Runtime.Serialization.Json;
 using System.IO;
+using MongoDB.Bson;
+using MongoDB.Bson.Serialization;
 
 namespace WebCrawler
 {
@@ -38,6 +40,38 @@ namespace WebCrawler
                     DataContractJsonSerializer ser = new DataContractJsonSerializer(typeof(T));
                     return (T)ser.ReadObject(stream);
                 }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine(ex.ToString());
+                throw ex;
+            }
+        }
+    }
+
+    public static class BSON
+    {
+        public static byte[] Serialize<T>(this T obj) where T : Serializable
+        {
+            try
+            {
+                byte[] buffer = obj.ToBson<T>();
+                return buffer;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine(ex.ToString());
+                throw ex;
+            }
+        }
+
+        public static T Deserialize<T>(byte[] bson) where T : Serializable
+        {
+            try
+            {
+                BsonDocument doc = BsonDocument.ReadFrom(bson);
+                T obj = BsonSerializer.Deserialize<T>(doc);
+                return obj;
             }
             catch (Exception ex)
             {

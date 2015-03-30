@@ -7,6 +7,7 @@ using System.Threading;
 using MongoDB.Bson;
 using System.Net;
 using MongoDB.Driver;
+using System.Diagnostics;
 
 namespace WebApplication
 {
@@ -29,19 +30,22 @@ namespace WebApplication
             string ipAd = "192.168.1.132";
             IPEndPoint endpoint = new IPEndPoint(IPAddress.Parse(ipAd), 11000);
             CrawlerManager.Instance.AllowCrawlerIP(endpoint);
-            Thread crawlerThread = new Thread(() => CrawlerManager.Instance.StartListener(ipAd));
+            Thread crawlerThread = new Thread(() => CrawlerManager.Instance.StartListener(IPAddress.Parse(ipAd)));
             crawlerThread.Start();
 
-            UserManager.Start();
+            UserManager.Instance.Start();
 
 
-            CreateLargeAmountOfUsers();
+            //CreateLargeAmountOfUsers();
 
 
         }
 
         public static void CreateLargeAmountOfUsers()
         {
+            Stopwatch sw = new Stopwatch();
+            sw.Start();
+
             const int NumberOfUsers = 999;
             string baseName = "user";
             string basePassword = "password";
@@ -50,19 +54,26 @@ namespace WebApplication
             {
                 string userName = baseName + i.ToString();
                 string password = basePassword + i.ToString();
-                UserManager.CreateUser(userName, Encoding.UTF8.GetBytes(password));
+                UserManager.Instance.CreateUser(userName, Encoding.UTF8.GetBytes(password));
             }
 
-            MongoCursor<User> userRecords = UserManager.UserCollection.FindAll();
+            MongoCursor<User> userRecords = UserManager.Instance.GetCollection().FindAll();
+
+            Console.WriteLine("[{1}]: {0} users added", userRecords.Count(), sw.Elapsed);
+            
             List<NewRecord> testRecords = GenerateUserInput();
 
             foreach (User user in userRecords)
             {
                 foreach (NewRecord record in testRecords)
                 {
-                    UserManager.AddLinkToUser(user.Id, user.UserName, record);
+                    record.AddUserId(user.Id);
+                    UserManager.Instance.AddLinkToUser(user.Id, user.UserName, record);
                 }
             }
+            sw.Stop();
+            Console.WriteLine("[{0}]: {1} links added to {2} users", sw.Elapsed, testRecords.Count(), userRecords.Count());
+
         }
 
         public static void CreateTestUsers()
@@ -78,7 +89,7 @@ namespace WebApplication
             {
                 string userName = baseName + i.ToString();
                 string password = basePassword + i.ToString();
-                UserManager.CreateUser(userName, Encoding.UTF8.GetBytes(password));
+                UserManager.Instance.CreateUser(userName, Encoding.UTF8.GetBytes(password));
             }
 
             List<List<NewRecord>> recordSegments = new List<List<NewRecord>>();
@@ -94,14 +105,15 @@ namespace WebApplication
                 counter += 3;
             }
 
-            MongoCursor<User> userRecords = UserManager.UserCollection.FindAll();
+            MongoCursor<User> userRecords = UserManager.Instance.GetCollection().FindAll();
 
             int iterator = 0;
             foreach(User user in userRecords)
             {
                 foreach(NewRecord record in recordSegments[iterator])
                 {
-                    UserManager.AddLinkToUser(user.Id, user.UserName, record);
+                    record.AddUserId(user.Id);
+                    UserManager.Instance.AddLinkToUser(user.Id, user.UserName, record);
                 }
                 iterator++;
             }
@@ -109,64 +121,65 @@ namespace WebApplication
 
         public static List<NewRecord> GenerateUserInput()
         {
-            NewRecord page1 = new NewRecord("http://www.reddit.com/",
+            NewRecord page1 = new NewRecord(typeof(LinkFeed), "http://www.reddit.com/",
                                         new List<string>() { "a", ".title", "href" },
-                                        new List<string>() { "java", "c#", "javascript", "parallelism", "threading", "project", "big four", "facebook" });
-            NewRecord page2 = new NewRecord("http://www.wired.com/",
+                                        new List<string>() { "java", "c#", "javascript", "parallelism", "threading", "project", "big four", "facebook"}, string.Empty);
+            NewRecord page2 = new NewRecord(typeof(LinkFeed), "http://www.wired.com/",
                                         new List<string>() { "a", ".clearfix", "href" },
-                                        new List<string>() { "tesla", "facebook", "snapchat", "virus" });
-            NewRecord page3 = new NewRecord("http://www.cnn.com/tech",
+                                        new List<string>() { "tesla", "facebook", "snapchat", "virus" }, string.Empty);
+            NewRecord page3 = new NewRecord(typeof(LinkFeed), "http://www.cnn.com/tech",
                                         new List<string>() { "h3", ".cd__headline", "a", "href" },
-                                        new List<string>() { "tesla", "facebook", "snapchat", "virus" });
-            NewRecord page4 = new NewRecord("https://news.ycombinator.com/",
+                                        new List<string>() { "tesla", "facebook", "snapchat", "virus" }, string.Empty);
+            NewRecord page4 = new NewRecord(typeof(LinkFeed), "https://news.ycombinator.com/",
                                         new List<string>() { "td", ".title", "a", "href" },
-                                        new List<string>() { "tesla", "facebook", "snapchat", "virus" });
-            NewRecord page5 = new NewRecord("http://www.reddit.com/?count=50&after=t3_2y5kn8",
+                                        new List<string>() { "tesla", "facebook", "snapchat", "virus" }, string.Empty);
+            NewRecord page5 = new NewRecord(typeof(LinkFeed), "http://www.reddit.com/?count=50&after=t3_2y5kn8",
                                        new List<string>() { "a", ".title", "href" },
-                                       new List<string>() { "java", "c#", "javascript", "parallelism", "threading", "project", "big four", "facebook" });
-            NewRecord page6 = new NewRecord("http://www.reddit.com/?count=100&after=t3_2y5d88",
+                                       new List<string>() { "java", "c#", "javascript", "parallelism", "threading", "project", "big four", "facebook" }, string.Empty);
+            NewRecord page6 = new NewRecord(typeof(LinkFeed), "http://www.reddit.com/?count=100&after=t3_2y5d88",
                                        new List<string>() { "a", ".title", "href" },
-                                       new List<string>() { "java", "c#", "javascript", "parallelism", "threading", "project", "big four", "facebook" });
-            NewRecord page8 = new NewRecord("http://youtube.com/",
+                                       new List<string>() { "java", "c#", "javascript", "parallelism", "threading", "project", "big four", "facebook" }, string.Empty);
+            NewRecord page8 = new NewRecord(typeof(LinkFeed), "http://youtube.com/",
                                         new List<string>() { "a", ".yt-uix-sessionlink", "href" },
-                                        new List<string>() { "tesla", "facebook", "snapchat", "virus" });
-            NewRecord page9 = new NewRecord("http://www.bbcamerica.com/",
+                                        new List<string>() { "tesla", "facebook", "snapchat", "virus" }, string.Empty);
+            NewRecord page9 = new NewRecord(typeof(LinkFeed), "http://www.bbcamerica.com/",
                                         new List<string>() { "h3", ".entry-title", "a", "href" },
-                                        new List<string>() { "tesla", "facebook", "snapchat", "virus" });
-            NewRecord page14 = new NewRecord("https://en.forums.wordpress.com/forum/themes",
+                                        new List<string>() { "tesla", "facebook", "snapchat", "virus" }, string.Empty);
+            NewRecord page14 = new NewRecord(typeof(LinkFeed), "https://en.forums.wordpress.com/forum/themes",
                                         new List<string>() { "td", ".topictitle", "a", "href" },
-                                        new List<string>() { "tesla", "facebook", "snapchat", "virus" });
-            NewRecord page15 = new NewRecord("http://yahoo.com/",
+                                        new List<string>() { "tesla", "facebook", "snapchat", "virus" }, string.Empty);
+            NewRecord page15 = new NewRecord(typeof(LinkFeed), "http://yahoo.com/",
                                         new List<string>() { "h3", ".fw-b", "a", "href" },
-                                        new List<string>() { "tesla", "facebook", "snapchat", "virus" });
-            NewRecord page16 = new NewRecord("http://www.amazon.com/s/ref=nb_sb_noss_1?url=search-alias%3Daps&field-keywords=stonewall+aioli",
+                                        new List<string>() { "tesla", "facebook", "snapchat", "virus" }, string.Empty);
+            NewRecord page16 = new NewRecord(typeof(LinkFeed), "http://www.amazon.com/s/ref=nb_sb_noss_1?url=search-alias%3Daps&field-keywords=stonewall+aioli",
                                         new List<string>() { "a", ".a-link-normal", "href" },
-                                        new List<string>() { "tesla", "facebook", "snapchat", "virus" });
-            NewRecord page17 = new NewRecord("https://www.flickr.com/20under20/",
+                                        new List<string>() { "tesla", "facebook", "snapchat", "virus" }, string.Empty);
+            NewRecord page17 = new NewRecord(typeof(LinkFeed), "https://www.flickr.com/20under20/",
                                         new List<string>() { "a", ".artist-name", "href" },
-                                        new List<string>() { "tesla", "facebook", "snapchat", "virus" });
-            NewRecord page18 = new NewRecord("http://pinterest.com/",
+                                        new List<string>() { "tesla", "facebook", "snapchat", "virus" }, string.Empty);
+            NewRecord page18 = new NewRecord(typeof(LinkFeed), "http://pinterest.com/",
                                         new List<string>() { "a", ".pinImageWrapper", "href" },
-                                        new List<string>() { "tesla", "facebook", "snapchat", "virus" });
-            NewRecord page19 = new NewRecord("http://alexbeardstudio.tumblr.com/post/112441953420/close-up-on-the-new-fish-painting-the-gestural",
+                                        new List<string>() { "tesla", "facebook", "snapchat", "virus" }, string.Empty);
+            NewRecord page19 = new NewRecord(typeof(LinkFeed), "http://alexbeardstudio.tumblr.com/post/112441953420/close-up-on-the-new-fish-painting-the-gestural",
                                         new List<string>() { "a", ".avatar_frame", "href" },
-                                        new List<string>() { "tesla", "facebook", "snapchat", "virus" });
-            NewRecord page21 = new NewRecord("https://discussions.apple.com/community/apple_pay/using_apple_pay_in_stores",
+                                        new List<string>() { "tesla", "facebook", "snapchat", "virus" }, string.Empty);
+            NewRecord page21 = new NewRecord(typeof(LinkFeed), "https://discussions.apple.com/community/apple_pay/using_apple_pay_in_stores",
                                         new List<string>() { "td", ".jive-table-cell-title", "a", "href" },
-                                        new List<string>() { "tesla", "facebook", "snapchat", "virus" });
-            NewRecord page22 = new NewRecord("http://myspace.com/",
+                                        new List<string>() { "tesla", "facebook", "snapchat", "virus" }, string.Empty);
+            NewRecord page22 = new NewRecord(typeof(LinkFeed), "http://myspace.com/",
                                         new List<string>() { "a", ".link", "href" },
-                                        new List<string>() { "tesla", "facebook", "snapchat", "virus" });
-            NewRecord page23 = new NewRecord("http://vimeo.com/",
+                                        new List<string>() { "tesla", "facebook", "snapchat", "virus" }, string.Empty);
+            NewRecord page23 = new NewRecord(typeof(LinkFeed), "http://vimeo.com/",
                                         new List<string>() { "a", ".responsive_border_lg", "href" },
-                                        new List<string>() { "tesla", "facebook", "snapchat", "virus" });
-            NewRecord page25 = new NewRecord("http://digg.com/",
+                                        new List<string>() { "tesla", "facebook", "snapchat", "virus" }, string.Empty);
+            NewRecord page25 = new NewRecord(typeof(LinkFeed), "http://digg.com/",
                                         new List<string>() { "a", ".story-title-link", "href" },
-                                        new List<string>() { "tesla", "facebook", "snapchat", "virus" });
+                                        new List<string>() { "tesla", "facebook", "snapchat", "virus" }, string.Empty);
 
             List<NewRecord> testRecords = new List<NewRecord> { page1, page2, page3, page4, page5, page6, page8,
                                                                 page9, page14, page15, page16, page17, page18,
                                                                 page19, page21, page22, page23, page25};
+            //List<NewRecord> testRecords = new List<NewRecord> { page1, page5 };
 
             return testRecords;
         }
