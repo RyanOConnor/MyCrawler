@@ -16,10 +16,12 @@ namespace WebApplication
 {
     public class DataManager
     {
-        private MongoCollection<HtmlRecord> CrawlCollection { get; set; }
-        private PriorityQueue<DateTime, ObjectId> jobSchedule = new PriorityQueue<DateTime, ObjectId>();
+        private JobSchedule _jobSchedule = new JobSchedule();
+        public JobSchedule jobSchedule
+        {
+            get { lock (_jobSchedule) { return _jobSchedule; } }
+        }
         private ManualResetEvent processJobs = new ManualResetEvent(false);
-        public const int UPDATE_FREQUENCY = 2;
         private static DataManager _instance;
         public static DataManager Instance
         {
@@ -33,9 +35,9 @@ namespace WebApplication
 
         public void Start()
         {
-            CrawlCollection = Database.Instance.GetCollection<HtmlRecord>("CrawlData");
+            MongoCollection<HtmlRecord> htmlCollection = Database.Instance.htmlCollection;
+            jobSchedule.Initialize(htmlCollection);
 
-            LoadJobSchedule();
             Thread scheduler = new Thread(ScheduleJobs);
             scheduler.Start();
         }
@@ -45,68 +47,116 @@ namespace WebApplication
             node.UpdateReceived += new EventHandler<HtmlRecord>(UpdateEntry);
         }
 
-        private void LoadJobSchedule()
-        {
-            lock (jobSchedule)
-            {
-                lock (CrawlCollection)  // MongoCursor is NOT thread safe
-                {
-                    MongoCursor<HtmlRecord> records = CrawlCollection.FindAll();
-                    int counter = 0;
-                    foreach (HtmlRecord record in records)
-                    {
-                        EnqueueJobSchedule(record);
-                        counter++;
-                    }
-                    Console.WriteLine("Loaded {0} objects into job schedule", counter);
-                }
-            }
-        }
-
         private void ScheduleJobs()
         {
-            while(true)
+            while (true)
             {
-                if(jobSchedule.Count == 0)
+                if (jobSchedule.jobSchedule.Count == 0)
                 {
                     processJobs.WaitOne();
                 }
 
-                KeyValuePair<DateTime, ObjectId> job = DequeueJobSchedule();
+                ObjectId job = jobSchedule.GetJob();
 
-                if (job.Key > DateTime.UtcNow)
-                {
-                    Thread.Sleep((int)(job.Key - DateTime.UtcNow).TotalMilliseconds);
-                }
-
-                HtmlRecord record = RetrieveEntryById(job.Value);
+                HtmlRecord record = RetrieveEntryById(job);
                 CrawlerManager.Instance.DistributeWork(record);
+
                 processJobs.Reset();
             }
         }
 
-        public KeyValuePair<ObjectId, HtmlResults> CreateEntry(NewRecord newRecord)
+        public HtmlResults CreateEntry(HtmlResults newUpdate, ObjectId userId)
         {
-            MongoCursor<HtmlRecord> records = CrawlCollection.FindAs<HtmlRecord>(Query.EQ("URL", newRecord.URL));
+            Type updateType = newUpdate.GetType();
+            MongoCursor<HtmlRecord> records = Database.Instance.htmlCollection.FindAs<HtmlRecord>(Query.EQ("url", newUpdate.domain.AbsoluteUri));
 
-            if (records.Count() == 0)
+            try
             {
-                HtmlRecord newHtmlRecord = new HtmlRecord(newRecord.URL);
-                HtmlResults newResults = newHtmlRecord.AddLinkOwner(newRecord);
-                CrawlCollection.Save(newHtmlRecord);
-                EnqueueJobSchedule(newHtmlRecord);
-                KeyValuePair<ObjectId, HtmlResults> pair = new KeyValuePair<ObjectId, HtmlResults>
-                                                              (key: newHtmlRecord.Id, value: newResults);
-                return pair;
+                HtmlResults results = null;
+                if (records.Count() == 0)
+                {
+                    HtmlRecord newHtmlRecord = new HtmlRecord(newUpdate.domain);
+                    if (updateType == typeof(LinkFeed))
+                    {
+                        LinkFeed linkFeed = newUpdate as LinkFeed;
+                        results = newHtmlRecord.AddLinkFeed(linkFeed, userId) as LinkFeedResults;
+                    }
+                    else if (updateType == typeof(TextUpdate))
+                    {
+                        TextUpdate textUpdate = newUpdate as TextUpdate;
+                        results = newHtmlRecord.AddTextUpdate(textUpdate, userId) as TextUpdateResults;
+                    }
+
+                    Database.Instance.htmlCollection.Save(newHtmlRecord, WriteConcern.Acknowledged);
+                    jobSchedule.AddNewJob(newHtmlRecord.id, newHtmlRecord.timeStamp);
+                    processJobs.Set();
+
+                    return results;
+                }
+                else if (records.Count() == 1)
+                {
+                    HtmlRecord recordToModify = records.First();
+                    if (updateType == typeof(LinkFeed))
+                    {
+                        LinkFeed linkFeed = newUpdate as LinkFeed;
+                        results = recordToModify.AddLinkFeed(linkFeed, userId);
+                    }
+                    else if (updateType == typeof(TextUpdate))
+                    {
+                        TextUpdate textUpdate = newUpdate as TextUpdate;
+                        results = recordToModify.AddTextUpdate(textUpdate, userId) as TextUpdateResults;
+                    }
+
+                    Database.Instance.htmlCollection.Save(recordToModify, WriteConcern.Acknowledged);
+
+                    return results;
+                }
+                else
+                {
+                    throw new Exception();
+                }
             }
-            else if (records.Count() == 1)
+            catch(MongoWriteConcernException ex)
+            {
+                // If duplicate found, just call modify record
+                Console.WriteLine(ex.ToString());
+                return ModifyEntry(newUpdate, userId);
+            }
+            catch(Exception ex)
+            {
+                Console.WriteLine(ex.ToString());
+                throw ex;
+            }
+        }
+
+        public HtmlResults ModifyEntry(HtmlResults modifiedEntry, ObjectId userId)
+        {
+            HtmlResults newResults = null;
+            MongoCollection<HtmlRecord> htmlCollection = Database.Instance.htmlCollection;
+            MongoCursor<HtmlRecord> records = htmlCollection.FindAs<HtmlRecord>(Query.EQ("Results.k", modifiedEntry.jobId));
+
+            if (records.Count() == 1)
             {
                 HtmlRecord recordToModify = records.First();
-                HtmlResults newResults = recordToModify.AddLinkOwner(newRecord);
-                CrawlCollection.Save(recordToModify);
-                KeyValuePair<ObjectId, HtmlResults> pair = new KeyValuePair<ObjectId, HtmlResults>
-                                                               (key: recordToModify.Id, value: newResults);
-                return pair;
+                HtmlResults results = recordToModify.results[modifiedEntry.jobId];
+                if (results.GetType() == typeof(LinkFeedResults))
+                {
+                    LinkFeedResults feedResults = results as LinkFeedResults;
+                    feedResults.RemoveOwner(userId);
+                    htmlCollection.Save(recordToModify);
+
+                    newResults = CreateEntry(modifiedEntry, userId) as LinkFeedResults;
+                }
+                else if (results.GetType() == typeof(TextUpdateResults))
+                {
+                    TextUpdateResults textResults = results as TextUpdateResults;
+                    textResults.RemoveOwner(userId);
+                    htmlCollection.Save(recordToModify);
+
+                    newResults = CreateEntry(modifiedEntry, userId) as TextUpdateResults;
+                }
+
+                return newResults;
             }
             else
             {
@@ -114,9 +164,19 @@ namespace WebApplication
             }
         }
 
-        public void ModifyEntry(ObjectId urlid, object changes)
+        public HtmlResults ManualRequest(ObjectId jobId)
         {
-
+            try
+            {
+                IMongoQuery query = Query.EQ("Results.k", jobId);
+                HtmlRecord record = Database.Instance.htmlCollection.FindOne(query);
+                return record.results[jobId];
+            }
+            catch(Exception ex)
+            {
+                Console.WriteLine(ex.ToString());
+                throw ex;
+            }
         }
 
         public HtmlRecord RetrieveEntryById(ObjectId id)
@@ -124,191 +184,33 @@ namespace WebApplication
             try
             {
                 IMongoQuery queryId = Query.EQ("_id", id);
-                HtmlRecord entity = CrawlCollection.FindOne(queryId);
+                HtmlRecord entity = Database.Instance.htmlCollection.FindOne(queryId);
                 return entity;
             }
-            catch(Exception ex)
+            catch (Exception ex)
             {
                 Console.WriteLine(ex.ToString());
                 throw ex;
             }
         }
 
-        public void UpdateEntry(object sender, HtmlRecord page)
+        public void UpdateEntry(object sender, HtmlRecord record)
         {
             try
             {
-                page.TimeStamp = DateTime.UtcNow.AddMinutes(UPDATE_FREQUENCY);
-                EnqueueJobSchedule(page);
-                CrawlCollection.Save(typeof(HtmlRecord), page);
-                UserManager.Instance.UpdateUsersByRecord(page);
+                record.timeStamp = DateTime.UtcNow;
+                jobSchedule.UpdateSchedule(record.id);
+                Database.Instance.htmlCollection.Save(typeof(HtmlRecord), record);
+                UserManager.Instance.UpdateUsersByRecord(record);
+                processJobs.Set();
             }
-            catch(Exception ex)
+            catch (Exception ex)
             {
                 Console.WriteLine(ex.ToString());
                 throw ex;
             }
         }
-
-        public void EnqueueJobSchedule(HtmlRecord record)
-        {
-            lock(jobSchedule)
-            {
-                jobSchedule.Enqueue(record.TimeStamp, record.Id);
-                processJobs.Set();
-            }
-        }
-
-        public KeyValuePair<DateTime, ObjectId> DequeueJobSchedule()
-        {
-            lock(jobSchedule)
-            {
-                return jobSchedule.Dequeue();
-            }
-        }
     }
 
-    public class HtmlRecord : Serializable
-    {
-        [BsonId]
-        public ObjectId Id { get; set; }
-        public string URL { get; set; }
-        public Uri Domain { get; set; }
-        public DateTime TimeStamp { get; set; }
-        [BsonDictionaryOptionsAttribute(DictionaryRepresentation.ArrayOfDocuments)]
-        public Dictionary<ObjectId, HtmlResults> Results { get; set; }
-        public HttpStatusCode ServerResponse { get; set; }
-
-        public HtmlRecord(string url)
-        {
-            this.URL = url;
-            Domain = new Uri(url);
-            TimeStamp = DateTime.UtcNow;
-            Results = new Dictionary<ObjectId, HtmlResults>();
-        }
-
-        public HtmlResults AddLinkOwner(NewRecord newRecord)
-        {
-            HtmlResults userResults = null;
-            IEnumerable<HtmlResults> existingResults = Results.Values.Where(val => val.HtmlTags
-                                                                     .SequenceEqual(newRecord.HtmlTags));
-            if(existingResults.Count() == 1)
-            {
-                userResults = existingResults.First(x => x != null);
-                if (newRecord.RecordType == typeof(TextUpdate) && userResults.GetType() == typeof(TextUpdate))
-                {
-                    userResults.AddResultsOwner(newRecord.UserId);
-                    return userResults;
-                }
-                else if (newRecord.RecordType == typeof(LinkFeed) && userResults.GetType() == typeof(LinkFeed))
-                {
-                    LinkFeed feed = userResults as LinkFeed;
-                    if(feed.Keywords.SequenceEqual(newRecord.Keywords))
-                    {
-                        feed.AddResultsOwner(newRecord.UserId);
-                        return feed;
-                    }
-                }
-            }
-            else if(existingResults.Count() == 0)
-            {
-                userResults = null;
-
-                if(newRecord.RecordType == typeof(TextUpdate))
-                {
-                    userResults = new TextUpdate(newRecord);
-                }
-                else if(newRecord.RecordType == typeof(LinkFeed))
-                {
-                    userResults = new LinkFeed(newRecord);
-                }
-
-                Results.Add(userResults.JobId, userResults);
-                return userResults;
-            }
-
-            return userResults;
-        }
-
-        public HtmlResults FindExistingEntry(HtmlResults newResults)
-        {
-            var existingEntry = Results.Where(val => val.GetType() == newResults.GetType())
-                                       .Where(val => val.Value.HtmlTags.Intersect(newResults.HtmlTags)
-                                                                       .Count() == newResults.HtmlTags.Count());
-            if (existingEntry.Count() == 1)
-                return existingEntry.First(x => x.Value != null).Value;
-            else
-                throw new Exception();
-        }
-
-        public List<HtmlResults> GetResultsByType(Type type)
-        {
-            if (type == typeof(LinkFeed) || type == typeof(TextUpdate))
-                return Results.Values.Where(val => val.GetType() == type).ToList();
-            else
-                return null;
-        }
-    }
-
-    [BsonKnownTypes(typeof(LinkFeed), typeof(TextUpdate))]
-    public class HtmlResults : Serializable
-    {
-        [BsonId]
-        public ObjectId JobId { get; set; }
-        public List<ObjectId> UserIDs { get; set; }
-        public Uri Domain { get; set; }
-        public List<string> HtmlTags { get; set; }
-        public bool ChangeInContent { get; set; }
-
-        public HtmlResults(ObjectId userid, string url, List<string> tags)
-        {
-            JobId = ObjectId.GenerateNewId();
-            UserIDs = new List<ObjectId>();
-            UserIDs.Add(userid);
-            Domain = new Uri(url);
-            HtmlTags = tags;
-        }
-
-        public void AddResultsOwner(ObjectId userid)
-        {
-            UserIDs.Add(userid);
-        }
-    }
-
-    public class LinkFeed : HtmlResults, Serializable
-    {
-        public List<string> Keywords { get; set; }
-        [BsonDictionaryOptionsAttribute(DictionaryRepresentation.ArrayOfDocuments)]
-        public Dictionary<string, int> RankedResults { get; set; }
-
-        public LinkFeed(ObjectId userid, string url, List<string> tags, List<string> keywords)
-            :base(userid, url, tags)
-        {
-            this.Keywords = keywords;
-        }
-
-        public LinkFeed(NewRecord newRecord)
-            : base(newRecord.UserId, newRecord.URL, newRecord.HtmlTags)
-        {
-            this.Keywords = newRecord.Keywords;
-        }
-    }
-
-    public class TextUpdate : HtmlResults, Serializable
-    {
-        public string PreviousText { get; set; }
-        public string CurrentText { get; set; }
-
-        public TextUpdate(ObjectId userid, string url, List<string> tags, string innerText)
-            :base(userid, url, tags)
-        {
-            PreviousText = innerText;
-        }
-
-        public TextUpdate(NewRecord newRecord)
-            : base(newRecord.UserId, newRecord.URL, newRecord.HtmlTags)
-        {
-            PreviousText = newRecord.EmbeddedText;
-        }
-    }
+    
 }

@@ -13,20 +13,19 @@ namespace WebApplication
 {
     public class SocketServer
     {
-        public SocketHandle receiveSocket { get; set; }
+        protected SocketHandle receiveHandle { get; set; }
+        private Socket sendSocket { get; set; }
         private IPAddress ipAddress { get; set; }
         protected ManualResetEvent listenerSignal = new ManualResetEvent(false);
-        protected ManualResetEvent connectDone = new ManualResetEvent(false);
-        protected ManualResetEvent sendDone = new ManualResetEvent(false);
-        protected ManualResetEvent receiveDone = new ManualResetEvent(false);
+        private ManualResetEvent ConnectDone = new ManualResetEvent(false);
         public event EventHandler<MessageEventArgs> MessageReceived;
+        public event EventHandler ClientConnected;
+        public event EventHandler MessageSubmitted;
 
-        public void StartListener(IPAddress ipAdd)
+        public void StartListening(IPAddress ipAd)
         {
-            ipAddress = ipAdd;
+            ipAddress = ipAd;
             IPEndPoint endPoint = new IPEndPoint(ipAddress, 11000);
-
-            Console.WriteLine("Local address and port: {0}", endPoint.ToString());
 
             Socket listener = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
 
@@ -40,10 +39,11 @@ namespace WebApplication
                     listenerSignal.Reset();
 
                     Console.WriteLine("Waiting for connection...");
-                    listener.BeginAccept(new AsyncCallback(ConnectCallBack), listener);
+                    Socket handler = listener.Accept();
+                    Console.WriteLine("Listener connected to : " + listener.LocalEndPoint.ToString());
 
+                    HandleConnection(handler);
                     listenerSignal.WaitOne();
-                    Console.WriteLine("Connected to crawler: " + listener.LocalEndPoint.ToString());
                 }
             }
             catch (SocketException ex)
@@ -53,79 +53,21 @@ namespace WebApplication
             }
         }
 
-        protected virtual void ConnectCallBack(IAsyncResult result)
+        protected void StartClient(IPAddress ip)
         {
-            listenerSignal.Set();
+            IPEndPoint endPoint = new IPEndPoint(ip, 11001);
+
+            sendSocket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
 
             try
             {
-                Socket listener = (Socket)result.AsyncState;
-                Socket handler = listener.EndAccept(result);
+                sendSocket.Connect(endPoint);
+                Console.WriteLine("Client connected to: " + sendSocket.LocalEndPoint.ToString());
 
-                receiveSocket = new SocketHandle(handler);
-                receiveSocket.socket.BeginReceive(receiveSocket.buffer, 0, SocketHandle.BUFFER_SIZE, 0,
-                                                    new AsyncCallback(ReceiveCallBack), receiveSocket);
-            }
-            catch (SocketException ex)
-            {
-                Console.WriteLine(ex.ToString());
-                throw ex;
-            }
-        }
-
-        protected void Receive(IAsyncResult result)
-        {
-            try
-            {
-                if(result != null)
+                EventHandler connectedHandler = ClientConnected;
+                if (connectedHandler != null)
                 {
-                    var async = (System.Runtime.Remoting.Messaging.AsyncResult)result;
-                    var invokedMethod = (EventHandler<MessageEventArgs>)async.AsyncDelegate;
-                    invokedMethod.EndInvoke(result);
-                }
-
-                Socket server = receiveSocket.socket;
-                receiveSocket = new SocketHandle(server);
-                receiveSocket.socket.BeginReceive(receiveSocket.buffer, 0, SocketHandle.BUFFER_SIZE, 0,
-                                                    new AsyncCallback(ReceiveCallBack), receiveSocket);
-            }
-            catch (SocketException ex)
-            {
-                Console.WriteLine(ex.ToString());
-                throw ex;
-            }
-        }
-
-        private void ReceiveCallBack(IAsyncResult result)
-        {
-            SocketHandle socketHandle = (SocketHandle)result.AsyncState;
-            Socket server = socketHandle.socket;
-            int bytesRead = socketHandle.socket.EndReceive(result);
-
-            try
-            {
-                if (bytesRead > 0)
-                {
-                    socketHandle.byteStream.Write(socketHandle.buffer, 0, bytesRead);
-
-                    if (server.Available > 0)
-                    {
-                        server.BeginReceive(socketHandle.buffer, 0, SocketHandle.BUFFER_SIZE, 0,
-                                                new AsyncCallback(ReceiveCallBack), socketHandle);
-                    }
-                    else
-                    {
-                        if (socketHandle.byteStream.Length > 1)
-                        {
-                            EventHandler<MessageEventArgs> messageReceived = MessageReceived;
-                            if (messageReceived != null)
-                            {
-                                messageReceived.BeginInvoke(null, new MessageEventArgs(socketHandle.byteStream.ToArray()), Receive, null);
-                            }
-
-                            socketHandle.Reset();
-                        }
-                    }
+                    connectedHandler(null, EventArgs.Empty);
                 }
             }
             catch (Exception ex)
@@ -135,17 +77,142 @@ namespace WebApplication
             }
         }
 
-        public bool IsConnected(SocketHandle handle)
+        protected virtual void HandleConnection(object socket)
         {
-            return handle.socket.Poll(1000, SelectMode.SelectWrite);
+            listenerSignal.Set();
+            try
+            {
+                Socket handler = (Socket)socket;
+                while (true)
+                {
+                    receiveHandle = new SocketHandle(handler);
+
+                    while (true)
+                    {
+                        int bytesReceived = receiveHandle.socket.Receive(receiveHandle.buffer);
+                        receiveHandle.AppendBytes(bytesReceived);
+
+                        if (receiveHandle.EndOfMessage() == "<EOF>")
+                        {
+                            break;
+                        }
+                    }
+
+                    EventHandler<MessageEventArgs> messageReceived = MessageReceived;
+                    if (messageReceived != null)
+                    {
+                        messageReceived.Invoke(null, new MessageEventArgs(receiveHandle.fullBuffer, receiveHandle.endOfMessage));
+                    }
+                }
+            }
+            catch (SocketException ex)
+            {
+                Console.WriteLine(ex.ToString());
+                throw ex;
+            }
+        }
+
+        protected void Send(byte[] data)
+        {
+            byte[] beginning = Encoding.UTF8.GetBytes("<BOF>");
+            byte[] ending = Encoding.UTF8.GetBytes("<EOF>");
+            byte[] message = new byte[beginning.Length + data.Length + ending.Length];
+            Buffer.BlockCopy(beginning, 0, message, 0, beginning.Length);
+            Buffer.BlockCopy(data, 0, message, beginning.Length, data.Length);
+            Buffer.BlockCopy(ending, 0, message, beginning.Length + data.Length, ending.Length);
+
+            if (IsConnected())
+            {
+                sendSocket.Send(message);
+            }
+            else
+            {
+                //this.sendSocket.Shutdown(SocketShutdown.Both);
+                //this.sendSocket.Close();
+                //this.StartClient(ipAddress);
+
+                this.Send(data);
+                throw new Exception();
+            }
+        }
+
+        private bool IsConnected()
+        {
+            return !(sendSocket.Poll(1000, SelectMode.SelectRead) && sendSocket.Available == 0);
         }
     }
+
+    public class SocketHandle
+    {
+        public Socket socket { get; set; }
+        public byte[] buffer { get; set; }
+        public byte[] fullBuffer { get; set; }
+        public string endOfMessage { get; set; }
+        public const int BUFFER_SIZE = 1024;
+
+        public SocketHandle(Socket socket)
+        {
+            this.socket = socket;
+            buffer = new byte[BUFFER_SIZE];
+            fullBuffer = new byte[0];
+        }
+
+        public void AppendBytes(int bytesReceived)
+        {
+            byte[] newBuffer = new byte[fullBuffer.Length + bytesReceived];
+            Buffer.BlockCopy(fullBuffer, 0, newBuffer, 0, fullBuffer.Length);
+            Buffer.BlockCopy(buffer, 0, newBuffer, fullBuffer.Length, bytesReceived);
+            fullBuffer = newBuffer;
+        }
+
+        public string EndOfMessage()
+        {
+            if (fullBuffer.Length >= 5)
+            {
+                byte[] ending = new byte[5];
+                Buffer.BlockCopy(fullBuffer, fullBuffer.Length - 5, ending, 0, 5);
+                endOfMessage = Encoding.UTF8.GetString(ending);
+                return endOfMessage;
+            }
+            else
+            {
+                throw new Exception("\n\n\n[Buffer destroyed]\n\n\n");
+            }
+        }
+
+        public void Reset()
+        {
+            buffer = new byte[BUFFER_SIZE];
+            fullBuffer = new byte[0];
+        }
+    }
+
     public class MessageEventArgs : EventArgs
     {
-        public byte[] Message { get; set; }
-        public MessageEventArgs(byte[] message)
+        public Message message { get; set; }
+
+        public MessageEventArgs(byte[] msg, string endOfMessage)
         {
-            this.Message = message;
+            try
+            {
+                string beginning = Encoding.UTF8.GetString(msg.Take(5).ToArray());
+
+                if (beginning == "<BOF>" && endOfMessage == "<EOF>")
+                {
+                    byte[] data = new byte[msg.Length - 10];
+                    Buffer.BlockCopy(msg, 5, data, 0, msg.Length - 10);
+                    message = BSON.Deserialize<Message>(data);
+                }
+                else
+                {
+                    message = new DestroyedBuffer();
+                }
+            }
+            catch(Exception ex)
+            {
+                message = new DestroyedBuffer();
+                throw ex;
+            }
         }
     }
 }

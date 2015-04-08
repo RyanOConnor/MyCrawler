@@ -18,30 +18,39 @@ namespace WebCrawler
     [BsonKnownTypes(typeof(LinkFeed), typeof(TextUpdate))]
     public class HtmlResults : Serializable
     {
-        [DataMember][BsonId]
-        public ObjectId JobId { get; set; }
-        [DataMember]
-        public List<ObjectId> UserIDs { get; set; }
-        [DataMember]
-        public Uri Domain { get; set; }
-        [DataMember]
-        public List<string> HtmlTags { get; set; }
-        [DataMember]
-        public bool ChangeInContent { get; set; }
+        [BsonId]
+        public ObjectId jobId { get; set; }
+        public Uri domain { get; set; }
+        public List<string> htmlTags { get; set; }
+        public bool changeInContent { get; set; }
         [BsonIgnore]
-        protected List<ChildPage> childPages = new List<ChildPage>();
+        private List<ChildPage> _childPages = new List<ChildPage>();
+        protected List<ChildPage> childPages
+        {
+            get { lock (_childPages) { return _childPages; } }
+        }
 
         public void AddChildPage(ChildPage page)
         {
+            if(childPages.Any(val => val.url == page.url))
+            {
+                Console.WriteLine();
+            }
             childPages.Add(page);
         }
     }
 
+    [BsonKnownTypes(typeof(LinkFeedResults))]
     public class LinkFeed : HtmlResults, Serializable
     {
-        public List<string> Keywords { get; set; }
+        public List<string> keywords { get; set; }
+    }
+
+    public class LinkFeedResults : LinkFeed, Serializable
+    {
+        public List<ObjectId> users { get; set; }
         [BsonDictionaryOptionsAttribute(DictionaryRepresentation.ArrayOfDocuments)]
-        public Dictionary<string, int> RankedResults { get; set; }
+        public Dictionary<string, int> rankedResults { get; set; }
 
         public List<string> FilterByTags(string html)
         {
@@ -50,16 +59,16 @@ namespace WebCrawler
                 HtmlDocument htmlDoc = new HtmlDocument();
                 htmlDoc.LoadHtml(html);
 
-                string query = HtmlTags[0];
-                for (int i = 1; i < HtmlTags.Count - 1; i++)
+                string query = htmlTags[0];
+                for (int i = 1; i < htmlTags.Count - 1; i++)
                 {
-                    if (HtmlTags[i].ElementAt(0) == '.' || HtmlTags[i].ElementAt(0) == '#')
+                    if (htmlTags[i].ElementAt(0) == '.' || htmlTags[i].ElementAt(0) == '#')
                     {
-                        query += HtmlTags[i];
+                        query += htmlTags[i];
                     }
                     else
                     {
-                        query += ' ' + HtmlTags[i];
+                        query += ' ' + htmlTags[i];
                     }
                 }
 
@@ -79,15 +88,15 @@ namespace WebCrawler
 
         private List<string> FixUrls(List<string> urls)
         {
-            urls.Remove(Domain.AbsoluteUri);
+            urls.Remove(domain.AbsoluteUri);
 
             HashSet<string> fixedUrlSet = new HashSet<string>();
             foreach (string url in urls)
             {
                 Uri fixedUri;
-                if (Uri.TryCreate(Domain, url, out fixedUri))
+                if (Uri.TryCreate(domain, url, out fixedUri))
                 {
-                    fixedUrlSet.Add(fixedUri.AbsoluteUri);
+                    fixedUrlSet.Add(fixedUri.OriginalString);
                 }
                 else
                 {
@@ -95,7 +104,7 @@ namespace WebCrawler
                     Match regx = Regex.Match(url, @"\.[a-z]{2,3}(\.[a-z]{2,3})?");
                     if (!regx.Success)
                     {
-                        fixedUrlSet.Add(Domain.Scheme + "://" + Domain.Host + url);
+                        fixedUrlSet.Add(domain.Scheme + "://" + domain.Host + url);
                     }
                 }
             }
@@ -112,10 +121,10 @@ namespace WebCrawler
             foreach (ChildPage page in childPages)
             {
                 int pageScore = 0;
-                if (page.HtmlDoc != null)
+                if (page.htmlDoc != null)
                 {
-                    string innerText = page.HtmlDoc.DocumentNode.InnerText.ToLower();
-                    foreach (string keyword in Keywords)
+                    string innerText = page.htmlDoc.DocumentNode.InnerText.ToLower();
+                    foreach (string keyword in keywords)
                     {
                         if (innerText.Contains(keyword.ToLower()))
                         {
@@ -127,19 +136,24 @@ namespace WebCrawler
                         }
                     }
                 }
-                results.Add(new KeyValuePair<string, int>(page.Domain.AbsoluteUri, pageScore));
+                results.Add(new KeyValuePair<string, int>(page.domain.AbsoluteUri, pageScore));
             }
 
             sortedList = from entry in results orderby entry.Value descending select entry;
-            RankedResults = sortedList.ToDictionary(pair => pair.Key, pair => pair.Value);
-
+            rankedResults = sortedList.ToDictionary(pair => pair.Key, pair => pair.Value);
         }
     }
 
-    class TextUpdate : HtmlResults, Serializable
+    [BsonKnownTypes(typeof(TextUpdateResults))]
+    public class TextUpdate : HtmlResults, Serializable
     {
-        public string PreviousText { get; set; }
-        public string CurrentText { get; set; }
+        public string previousText { get; set; }
+        public string currentText { get; set; }
+    }
+
+    public class TextUpdateResults : TextUpdate, Serializable
+    {
+        public List<ObjectId> users { get; set; }
 
         public void FilterByTags(string html)
         {
@@ -148,32 +162,32 @@ namespace WebCrawler
                 HtmlDocument htmlDoc = new HtmlDocument();
                 htmlDoc.LoadHtml(html);
 
-                string query = HtmlTags[0];
-                for (int i = 1; i < HtmlTags.Count - 1; i++)
+                string query = htmlTags[0];
+                for (int i = 1; i < htmlTags.Count - 1; i++)
                 {
-                    if (HtmlTags[i].ElementAt(0) == '.' || HtmlTags[i].ElementAt(0) == '#')
+                    if (htmlTags[i].ElementAt(0) == '.' || htmlTags[i].ElementAt(0) == '#')
                     {
-                        query += HtmlTags[i];
+                        query += htmlTags[i];
                     }
                     else
                     {
-                        query += ' ' + HtmlTags[i];
+                        query += ' ' + htmlTags[i];
                     }
                 }
 
                 IEnumerable<string> results = htmlDoc.DocumentNode.QuerySelectorAll(query).Select(x => x.InnerText);
-                
-                if(results.Count() == 0)
+
+                if (results.Count() == 0)
                 {
-                    ChangeInContent = true;
+                    changeInContent = true;
                 }
-                else if(results.Count() == 1)
+                else if (results.Count() == 1)
                 {
-                    CurrentText = results.Single(x => x != null);
-                    if (CurrentText != PreviousText)
-                        ChangeInContent = true;
+                    currentText = results.Single(x => x != null);
+                    if (currentText != previousText)
+                        changeInContent = true;
                     else
-                        ChangeInContent = false;
+                        changeInContent = false;
                 }
                 else
                 {
@@ -187,6 +201,5 @@ namespace WebCrawler
                 throw ex;
             }
         }
-
     }
 }

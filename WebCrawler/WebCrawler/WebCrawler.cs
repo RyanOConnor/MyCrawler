@@ -8,19 +8,25 @@ using System.Net;
 using System.Threading;
 using System.IO;
 using HtmlAgilityPack;
+using MongoDB.Bson;
 
 namespace WebCrawler
 {
-    public enum CrawlerStatus { STARTING, WAITING, SENDING_DATA, SHUTTING_DOWN };
+    public enum PriorityLevel { Ready, Highest, High, Normal, Low, Lowest };
+    public enum CrawlerStatus { Starting, Waiting, SendingData, ShuttingDown };
+    public enum JobStatus { Requesting, HandlingResponse, LoadingPages, RankingPages, 
+                            Finished, ErrorRequesting, ErrorLoading};
 
-    public class WebCrawler
+    public class WebCrawler : SocketServer
     {
         public CrawlerStatus status { get; private set; }
+        private Dictionary<ObjectId, HtmlRecord> jobSet { get; set; }
         private Dictionary<string, Domain> domainDictionary { get; set; }
-        private Queue<HTMLPage> resultQueue { get; set; }
+        private PriorityQueue<PriorityLevel, Message> messageQueue { get; set; }
+        private Dictionary<ObjectId, Message> backupQueue { get; set; }
         private ManualResetEvent waitForShutdown { get; set; }
-        private ManualResetEvent waitForResults { get; set; }
-        public const int TIMEOUT_PERIOD = 60000;
+        private ManualResetEvent allowSend { get; set; }
+        public const int TimeoutPeriod = 60000;
         private static WebCrawler _instance;
         public static WebCrawler Instance
         {
@@ -39,96 +45,195 @@ namespace WebCrawler
 
         public void Initialize()
         {
-            status = CrawlerStatus.STARTING;
-            resultQueue = new Queue<HTMLPage>();
-            waitForResults = new ManualResetEvent(false);
+            status = CrawlerStatus.Starting;
+            messageQueue = new PriorityQueue<PriorityLevel, Message>();
+            allowSend = new ManualResetEvent(false);
             waitForShutdown = new ManualResetEvent(false);
+            jobSet = new Dictionary<ObjectId, HtmlRecord>();
+            backupQueue = new Dictionary<ObjectId, Message>();
             domainDictionary = new Dictionary<string, Domain>();
-            SocketClient.Instance.ClientConnected += new EventHandler<MessageEventArgs>(OnClientConnection);
-            SocketClient.Instance.MessageSubmitted += new EventHandler(OnMessageSent);
-            SocketServer.Instance.MessageReceived += new EventHandler<MessageEventArgs>(OnMessageReceived);
-            SocketServer.Instance.ServerConnected += new EventHandler(OnServerConnection);
+            ClientConnected += new EventHandler<ClientConnectedArgs>(OnClientConnection);
+            MessageReceived += new EventHandler<MessageEventArgs>(OnMessageReceived);
+            ServerConnected += new EventHandler(OnServerConnection);
         }
 
         public void Start(string ipAd)
         {
-            Thread startClient = new Thread(() => SocketClient.Instance.StartClient(ipAd));
+            Thread startClient = new Thread(() => StartClient(ipAd));
             startClient.Start();
-            //Thread responseProcess = new Thread(WebCrawler.Instance.SendResults);
-            //responseProcess.Start();
 
-            while (status != CrawlerStatus.SHUTTING_DOWN)
+            while (status != CrawlerStatus.ShuttingDown)
             {
                 waitForShutdown.WaitOne();
             }
         }
 
-        public void OnClientConnection(object sender, MessageEventArgs args)
+        public void OnClientConnection(object sender, ClientConnectedArgs args)
         {
-            SocketServer.Instance.StartListener(Encoding.UTF8.GetString(args.Message));
+            StartListening();
         }
 
         public void OnServerConnection(object sender, EventArgs args)
         {
-            SocketClient.Instance.Send(Encoding.UTF8.GetBytes("ready"));
+            Message readyMessage = new ReadyMessage(ObjectId.Empty);
+            Send(BSON.Serialize<Message>(readyMessage));
         }
 
         public void OnMessageReceived(object sender, MessageEventArgs args)
         {
-            if(Encoding.UTF8.GetString(args.Message) == "ready")
-            {
-                ThreadPool.QueueUserWorkItem(Send);
-            }
-            else if (Encoding.UTF8.GetString(args.Message) == "SHUTDOWN")
-            {
-                status = CrawlerStatus.SHUTTING_DOWN;
-                waitForShutdown.Set();
-            }
-            else
-            {
-                HTMLPage page = BSON.Deserialize<HTMLPage>(args.Message);
-                Console.WriteLine("\nReceived: \n" + page.Domain.AbsoluteUri);
-                EnqueueWork(page);
+            Message response = null;
 
-                SocketClient.Instance.Send(Encoding.UTF8.GetBytes("ready"));
+            if(args.message is ReadyMessage)
+            {
+                ReadyMessage readyMessage = args.message as ReadyMessage;
+
+                RemoveFromBackup(readyMessage.idReceived);
+                if (messageQueue.Count == 0)
+                {
+                    ThreadPool.QueueUserWorkItem(new WaitCallback(WaitSend));
+                }
+                else
+                {
+                    response = messageQueue.DequeueValue();
+                }
             }
+            else if(args.message is RecordMessage)
+            {
+                RecordMessage recordMessage = args.message as RecordMessage;
+
+                EnqueueWork(recordMessage.htmlRecord);
+                TrackJob(recordMessage.htmlRecord);
+
+                response = new ReadyMessage(recordMessage.id);
+            }
+            else if(args.message is StatusRequest)
+            {
+                StatusRequest statusRequest = args.message as StatusRequest;
+
+                ObjectId jobId = statusRequest.requestedId;
+                JobStatus status = GetJobStatus(jobId);
+
+                if(status == JobStatus.ErrorLoading || status == JobStatus.ErrorRequesting || status == JobStatus.LoadingPages)
+                {
+                    StopTrackingJob(jobId);
+                }
+                KeyValuePair<ObjectId, JobStatus> statusPair = new KeyValuePair<ObjectId, JobStatus>
+                                                                     (key: jobId, value: status);
+                response = new StatusReport(statusPair);
+            }
+            else if (args.message is DestroyedBuffer)
+            {
+                response = new ResendMessage();
+            }
+            else if(args.message is ResendMessage)
+            {
+                response = RetrieveFromBackup();
+            }
+
+            if(response != null)
+            {
+                Send(response);
+            }
+
+            PrintJobs();
         }
 
-        public void OnMessageSent(object sender, EventArgs args)
+        public void Send(Message message)
         {
-
-        }
-
-        public void Send(object obj)
-        {
-            if (resultQueue.Count == 0)
-                waitForResults.WaitOne();
-
-            if (resultQueue.Count != 0)
+            if (message is RecordMessage)
             {
-                HTMLPage page = DequeueResult();
-                byte[] bson = BSON.Serialize<HTMLPage>(page);
-                SocketClient.Instance.Send(bson);
-                Console.WriteLine("\nSent Data from: \n" + page.URL);
+                RecordMessage rm = message as RecordMessage;
+                StopTrackingJob(rm.htmlRecord.id);
             }
-            waitForResults.Reset();
+
+            byte[] bson = BSON.Serialize<Message>(message);
+            Send(bson);
         }
 
-        public void EnqueueWork(HTMLPage page)
+        public void WaitSend(object state)
+        {
+            allowSend.Reset();
+
+            if (messageQueue.Count == 0)
+                allowSend.WaitOne();
+
+            Message message = DequeueMessage();
+            if (message != null)
+            {
+                Send(message);
+            }
+        }
+
+        public void AddToBackup(Message message)
+        {
+            lock(backupQueue)
+            {
+                if (!backupQueue.ContainsKey(message.id))
+                {
+                    backupQueue.Add(message.id, message);
+                }
+            }
+        }
+
+        public Message RetrieveFromBackup()
+        {
+            lock (backupQueue)
+            {
+                if (backupQueue.Count != 0)
+                    return backupQueue.Values.First();
+                else
+                    return null;
+            }
+        }
+
+        public void RemoveFromBackup(ObjectId messageId)
+        {
+            lock(backupQueue)
+            {
+                backupQueue.Remove(messageId);
+            }
+        }
+
+        public void TrackJob(HtmlRecord record)
+        {
+            lock(jobSet)
+            {
+                jobSet.Add(record.id, record);
+            }
+        }
+
+        public void StopTrackingJob(ObjectId jobId)
+        {
+            lock(jobSet)
+            {
+                jobSet.Remove(jobId);
+            }
+        }
+
+        public JobStatus GetJobStatus(ObjectId jobId)
+        {
+            lock(jobSet)
+            {
+                return jobSet[jobId].jobStatus;
+            }
+        }
+
+        public void EnqueueWork(HtmlRecord record)
         {
             lock (domainDictionary)
             {
-                string key = page.Domain.Host;
+                string key = record.domain.Host;
                 if (domainDictionary.ContainsKey(key))
                 {
-                    domainDictionary[key].Enqueue(page);
+                    domainDictionary[key].Enqueue(record);
                 }
                 else
                 {
                     domainDictionary[key] = new Domain(key);
-                    domainDictionary[key].Enqueue(page);
+                    domainDictionary[key].Enqueue(record);
                     domainDictionary[key].InitTimer();
                 }
+                //PrintDomains();
             }
         }
 
@@ -137,23 +242,62 @@ namespace WebCrawler
             lock (domainDictionary)
             {
                 domainDictionary.Remove(domainKey);
+
+                //PrintDomains();
             }
         }
 
-        public void EnqueueResult(HTMLPage page)
+        public void EnqueueResult(HtmlRecord record)
         {
-            lock (resultQueue)
+            lock (messageQueue)
             {
-                resultQueue.Enqueue(page);
-                waitForResults.Set();
+                Message message = new RecordMessage(record);
+                messageQueue.Enqueue(PriorityLevel.Normal, message);
+                allowSend.Set();
             }
         }
 
-        public HTMLPage DequeueResult()
+        public void EnqueueMessage(PriorityLevel priority, Message message)
         {
-            lock (resultQueue)
+            lock(messageQueue)
             {
-                return resultQueue.Dequeue();
+                messageQueue.Enqueue(priority, message);
+                //waitForResults.Set();
+            }
+        }
+
+        public Message DequeueMessage()
+        {
+            lock (messageQueue)
+            {
+                if (messageQueue.Count != 0)
+                {
+                    return messageQueue.DequeueValue();
+                }
+                else
+                {
+                    return null;
+                }
+            }
+        }
+
+        public void PrintDomains()
+        {
+            Console.Clear();
+            Console.WriteLine("Domains\n\n");
+            foreach(KeyValuePair<string, Domain> pair in domainDictionary)
+            {
+                Console.WriteLine(pair.Key);
+            }
+        }
+
+        public void PrintJobs()
+        {
+            Console.Clear();
+            Console.WriteLine("Jobs\n\n");
+            foreach(HtmlRecord record in jobSet.Values)
+            {
+                Console.WriteLine("[{0}]\t\t{1}", record.jobStatus.ToString(), record.url);
             }
         }
     }

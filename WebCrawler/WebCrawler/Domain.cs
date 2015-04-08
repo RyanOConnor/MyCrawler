@@ -10,9 +10,9 @@ namespace WebCrawler
     class Domain
     {
         private string domainName { get; set; }
-        private Queue<HTMLPage> workQueue = new Queue<HTMLPage>();
+        private Queue<HtmlRecord> workQueue = new Queue<HtmlRecord>();
         private Timer timer { get; set; }
-        private const int DOMAIN_DELAY_PERIOD = 2000;
+        private const int DomainDelayPeriod = 2000;
 
         public Domain(string domainName)
         {
@@ -21,19 +21,19 @@ namespace WebCrawler
 
         public void InitTimer()
         {
-            timer = new Timer(new TimerCallback(Update), null, 0, DOMAIN_DELAY_PERIOD);
+            timer = new Timer(new TimerCallback(Update), null, 0, DomainDelayPeriod);
         }
         
         public void Update(object stateInfo)
         {
             if (workQueue.Count != 0)
             {
-                HTMLPage page = Dequeue();
+                HtmlRecord record = Dequeue();
 
-                if (page.WaitTime != 0)
-                    ThreadPool.QueueUserWorkItem(new WaitCallback(page.SleepThenUpdate));
+                if (record.waitTime != 0)
+                    ThreadPool.QueueUserWorkItem(new WaitCallback(record.SleepThenUpdate));
                 else
-                    page.BeginUpdate();
+                    record.BeginUpdate();
             }
             else
             {
@@ -42,7 +42,7 @@ namespace WebCrawler
             }
         }
 
-        public void Enqueue(HTMLPage page)
+        public void Enqueue(HtmlRecord page)
         {
             lock (workQueue)
             {
@@ -50,7 +50,7 @@ namespace WebCrawler
             }
         }
 
-        private HTMLPage Dequeue()
+        private HtmlRecord Dequeue()
         {
             lock(workQueue)
             {

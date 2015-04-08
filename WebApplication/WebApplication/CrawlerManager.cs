@@ -11,14 +11,15 @@ using System.Web.Script.Serialization;
 using System.Runtime.Serialization.Json;
 using System.Collections.Concurrent;
 using System.Diagnostics;
+using MongoDB.Bson;
 
 namespace WebApplication
 {
     public enum CrawlerStatus { STARTING, WAITING, SENDING_DATA, SHUTTING_DOWN };
     public class CrawlerManager : SocketServer
     {
-        private BlockingCollection<HtmlRecord> sendQueue { get; set; }
         private Dictionary<IPEndPoint, CrawlerNode> crawlerNodes { get; set; }
+        private Dictionary<ObjectId, CrawlerNode> jobSet { get; set; }
         private HashSet<IPEndPoint> nodeIPAddresses { get; set; }
         private static CrawlerManager _instance;
         public static CrawlerManager Instance
@@ -33,9 +34,9 @@ namespace WebApplication
 
         public CrawlerManager()
         {
-            sendQueue = new BlockingCollection<HtmlRecord>();
             crawlerNodes = new Dictionary<IPEndPoint, CrawlerNode>();
             nodeIPAddresses = new HashSet<IPEndPoint>();
+            jobSet = new Dictionary<ObjectId, CrawlerNode>();
             this.MessageReceived += new EventHandler<MessageEventArgs>(OnMessageReceived);
         }
 
@@ -48,123 +49,139 @@ namespace WebApplication
             }
         }
 
-        protected override void ConnectCallBack(IAsyncResult result)
+        protected override void HandleConnection(object socket)
         {
             listenerSignal.Set();
 
-            try
-            {
-                Socket listener = (Socket)result.AsyncState;
-                Socket handler = listener.EndAccept(result);
+            Socket handler = (Socket)socket;
 
-                if (nodeIPAddresses.Contains(handler.LocalEndPoint))
-                {
-                    CrawlerNode node = new CrawlerNode(handler);
-                    crawlerNodes.Add((IPEndPoint)node.receiveSocket.socket.LocalEndPoint, node);
-                    node.Start();
-                }
-                else
-                {
-                    throw new Exception("Invalid IP attempting to connect");
-                }
-            }
-            catch(SocketException ex)
+            if (nodeIPAddresses.Contains(handler.LocalEndPoint))
             {
-                Console.WriteLine(ex.ToString());
-                throw ex;
+                CrawlerNode node = new CrawlerNode();
+                node.UpdateReceived += new EventHandler<HtmlRecord>(OnUpdateReceived);
+                node.Start(handler);
+                crawlerNodes.Add((IPEndPoint)handler.LocalEndPoint, node);
+            }
+            else
+            {
+                throw new Exception("Invalid IP attempting to connect");
             }
         }
 
         public void OnMessageReceived(object sender, MessageEventArgs args)
         {
-            try
-            {
-                Console.WriteLine();
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine(ex.ToString());
-            }
+
         }
 
-        public void DistributeWork(HtmlRecord page)
+        public void DistributeWork(HtmlRecord record)
         {
             while (crawlerNodes.Count == 0) ;
-            CrawlerNode node = crawlerNodes.OrderByDescending(x => x.Value.workQueue.Count).First().Value;
-            node.AddWork(page);
+            CrawlerNode node = crawlerNodes.OrderByDescending(x => x.Value.messageQueue.Count).Last().Value;
+            jobSet[record.id] = node;
+            node.EnqueueHtmlRecord(record);
         }
 
-        public void GetCrawlerStatus(CrawlerNode node)
+        public void OnUpdateReceived(object sender, HtmlRecord args)
         {
-            
+            jobSet.Remove(args.id);
         }
 
-        public void Enqueue(HtmlRecord page)
+        public void GetJobStatus(ObjectId jobId)
         {
-            sendQueue.Add(page);
+            StatusRequest statusRequest = new StatusRequest(jobId);
+            jobSet[jobId].EnqueueMessage(statusRequest);
         }
     }
 
     public class CrawlerNode : SocketServer
     {
-        public string crawlerStatus { get; set; }
-        public BlockingCollection<HtmlRecord> workQueue { get; set; }
+        public BlockingCollection<Message> messageQueue = new BlockingCollection<Message>();
+        public Dictionary<ObjectId, Message> backupQueue = new Dictionary<ObjectId, Message>();
         public ManualResetEvent allowSend = new ManualResetEvent(false);
-        public ManualResetEvent waitForWork = new ManualResetEvent(false);
-        public AutoResetEvent allowDBUpdate = new AutoResetEvent(false);
         public event EventHandler<HtmlRecord> UpdateReceived;
-        private SocketClient crawlerClient { get; set; }
+        private event EventHandler<KeyValuePair<ObjectId, JobStatus>> StatusReceived;
 
-        public CrawlerNode(Socket socket)
+        public CrawlerNode()
         {
-            this.receiveSocket = new SocketHandle(socket);
-            workQueue = new BlockingCollection<HtmlRecord>();
-            this.MessageReceived += new EventHandler<MessageEventArgs>(OnMessageReceived);
+            MessageReceived += new EventHandler<MessageEventArgs>(OnMessageReceived);
             DataManager.Instance.AddCrawlerEvent(this);
-            crawlerClient = new SocketClient();
-            crawlerClient.ClientConnected += new EventHandler(OnClientConnected);
-            crawlerClient.MessageSubmitted += new EventHandler(OnMessageSubmitted);
-
-            IPEndPoint localEndPoint = socket.LocalEndPoint as IPEndPoint;
-            crawlerClient.StartClient(localEndPoint.Address);
+            ClientConnected += new EventHandler(OnClientConnected);
+            MessageSubmitted += new EventHandler(OnMessageSubmitted);
+            StatusReceived += new EventHandler<KeyValuePair<ObjectId, JobStatus>>(DataManager.Instance.jobSchedule.OnStatusReceived);
         }
 
-        public void Start()
+        public void Start(Socket socket)
         {
-            this.Receive(null);
+            IPEndPoint localEndPoint = socket.LocalEndPoint as IPEndPoint;
+            StartClient(localEndPoint.Address);
+            
+            Thread receive = new Thread(new ParameterizedThreadStart(HandleConnection));
+            receive.Start(socket);
         }
 
         public void OnClientConnected(object sender, EventArgs args)
         {
-            crawlerClient.Send(Encoding.UTF8.GetBytes("ready"));
+            Message readyMessage = new ReadyMessage(ObjectId.Empty);
+            Send(BSON.Serialize<Message>(readyMessage));
         }
 
         public void OnMessageReceived(object sender, MessageEventArgs args)
         {
-            try
+            Message response = null;
+            if(args.message is ReadyMessage)
             {
-                if (Encoding.UTF8.GetString(args.Message) == "ready")
+                ReadyMessage readyMessage = args.message as ReadyMessage;
+                RemoveFromBackup(readyMessage.idReceived);
+
+                if (messageQueue.Count == 0)
                 {
-                    ThreadPool.QueueUserWorkItem(Send);
+                    ThreadPool.QueueUserWorkItem(new WaitCallback(WaitSend));
                 }
                 else
                 {
-                    HtmlRecord record = BSON.Deserialize<HtmlRecord>(args.Message);
-
-                    EventHandler<HtmlRecord> updateReceived = UpdateReceived;
-                    if (updateReceived != null)
-                    {
-                        updateReceived.BeginInvoke(null, record, OnDatabaseUpdated, null);
-                    }
-
-                    Console.WriteLine("\n\tRecieved Data from: \n\t" + record.URL);
-
-                    crawlerClient.Send(Encoding.UTF8.GetBytes("ready"));
+                    response = messageQueue.Take();
                 }
             }
-            catch (Exception ex)
+            else if(args.message is RecordMessage)
             {
-                Console.WriteLine(ex.ToString());
+                RecordMessage recordMessage = args.message as RecordMessage;
+
+                EventHandler<HtmlRecord> updateReceived = UpdateReceived;
+                if (updateReceived != null)
+                {
+                    var delegates = updateReceived.GetInvocationList();
+                    foreach(EventHandler<HtmlRecord> receiver in delegates)
+                    {
+                        receiver.BeginInvoke(null, recordMessage.htmlRecord, OnDatabaseUpdated, null);
+                    }
+                }
+
+                response = new ReadyMessage(recordMessage.id);
+            }
+            else if(args.message is StatusReport)
+            {
+                StatusReport report = args.message as StatusReport;
+
+                EventHandler<KeyValuePair<ObjectId, JobStatus>> statusReceived = StatusReceived;
+                if (statusReceived != null)
+                {
+                    statusReceived.Invoke(null, report.statusReport);
+                }
+
+                response = new ReadyMessage(report.id);
+            }
+            else if (args.message is DestroyedBuffer)
+            {
+                response = new ResendMessage();
+            }
+            else if(args.message is ResendMessage)
+            {
+                response = RetrieveFromBackup();
+            }
+
+            if(response != null)
+            {
+                Send(response);
             }
         }
 
@@ -175,19 +192,22 @@ namespace WebApplication
             invokedMethod.EndInvoke(result);
         }
 
-        public void Send(object obj)
+        public void Send(Message message)
         {
-            if (workQueue.Count == 0)
+            byte[] bson = BSON.Serialize<Message>(message);
+            Send(bson);
+        }
+
+        public void WaitSend(object state)
+        {
+            allowSend.Reset();
+
+            if (messageQueue.Count == 0)
                 allowSend.WaitOne();
 
-            if (workQueue.Count != 0)
-            {
-                HtmlRecord record = workQueue.Take();
-                byte[] bson = BSON.Serialize<HtmlRecord>(record);
-                crawlerClient.Send(bson);
-                Console.WriteLine("\nSent Data from: \n" + record.URL);
-            }
-            allowSend.Reset();
+            Message message = messageQueue.Take();
+            byte[] bson = BSON.Serialize<Message>(message);
+            Send(bson);
         }
 
         public void OnMessageSubmitted(object sender, EventArgs args)
@@ -195,10 +215,53 @@ namespace WebApplication
 
         }
 
-        public void AddWork(HtmlRecord record)
+        public void AddToBackup(Message message)
         {
-            workQueue.Add(record);
-            allowSend.Set();
+            lock(backupQueue)
+            {
+                if (!backupQueue.ContainsKey(message.id))
+                {
+                    backupQueue.Add(message.id, message);
+                }
+            }
+        }
+
+        public Message RetrieveFromBackup()
+        {
+            lock(backupQueue)
+            {
+                if (backupQueue.Count != 0)
+                    return backupQueue.Values.First();
+                else
+                    return null;
+            }
+        }
+
+        public void RemoveFromBackup(ObjectId messageId)
+        {
+            lock(backupQueue)
+            {
+                backupQueue.Remove(messageId);
+            }
+        }
+
+        public void EnqueueHtmlRecord(HtmlRecord record)
+        {
+            lock (messageQueue)
+            {
+                RecordMessage message = new RecordMessage(record);
+                messageQueue.Add(message);
+                allowSend.Set();
+            }
+        }
+
+        public void EnqueueMessage(Message message)
+        {
+            lock(messageQueue)
+            {
+                messageQueue.Add(message);
+                allowSend.Set();
+            }
         }
     }
 }

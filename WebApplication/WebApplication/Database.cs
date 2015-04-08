@@ -5,14 +5,12 @@ using System.Text;
 using System.Threading.Tasks;
 using MongoDB.Bson;
 using MongoDB.Driver;
+using MongoDB.Driver.Builders;
 
 namespace WebApplication
 {
     public class Database
     {
-        private MongoServer Server { get; set; }
-        private MongoDatabase DB { get; set; }
-        private MongoClient dbClient { get; set; }
         private static Database _instance;
         public static Database Instance
         {
@@ -24,22 +22,26 @@ namespace WebApplication
             }
         }
 
+        private MongoServer server { get; set; }
+        private MongoDatabase db { get; set; }
+        private MongoClient dbClient { get; set; }
+        private MongoCollection<HtmlRecord> _htmlCollection;
+        public MongoCollection<HtmlRecord> htmlCollection { get { return _htmlCollection; } }
+        private MongoCollection<User> _userCollection;
+        public MongoCollection<User> userCollection { get { return _userCollection; } }
+
         public void Start()
         {
             dbClient = new MongoClient();
-            Server = dbClient.GetServer();
-            DB = Server.GetDatabase("CloudCrawler");
-        }
+            server = dbClient.GetServer();
+            db = server.GetDatabase("CloudCrawler");
+            _htmlCollection = db.GetCollection<HtmlRecord>("CrawlData");
+            _userCollection = db.GetCollection<User>("UserData");
 
-        public MongoCollection<T> GetCollection<T>(string name)
-        {
-            MongoCollection<T> collection = null;
-            if(DB.CollectionExists(name))
-            {
-                collection = DB.GetCollection<T>(name);
-            } 
-
-            return collection;
+            if (!_htmlCollection.IndexExists(IndexKeys<HtmlRecord>.Ascending(val => val.url)))
+                _htmlCollection.CreateIndex(IndexKeys<HtmlRecord>.Ascending(val => val.url), IndexOptions.SetUnique(true));
+            if(!_userCollection.IndexExists(IndexKeys<User>.Ascending(val => val.username)))
+                _userCollection.CreateIndex(IndexKeys<User>.Ascending(val => val.username), IndexOptions.SetUnique(true));
         }
     }
 }

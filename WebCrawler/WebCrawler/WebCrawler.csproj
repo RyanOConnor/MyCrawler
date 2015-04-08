@@ -64,15 +64,17 @@
     <Reference Include="System.Xml" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="ChildPage.cs" />
     <Compile Include="JSON.cs" />
+    <Compile Include="Message.cs" />
+    <Compile Include="PriorityQueue.cs" />
     <Compile Include="Program.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="Domain.cs" />
     <Compile Include="SocketServer.cs" />
-    <Compile Include="SocketClient.cs" />
     <Compile Include="UserResults.cs" />
     <Compile Include="WebCrawler.cs" />
-    <Compile Include="HTMLPage.cs" />
+    <Compile Include="HtmlPage.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="App.config" />
