@@ -22,6 +22,7 @@ namespace WebApplication
         [BsonDictionaryOptionsAttribute(DictionaryRepresentation.ArrayOfDocuments)]
         public Dictionary<ObjectId, HtmlResults> results { get; set; }
         public HttpStatusCode serverResponse { get; set; }
+        public int version = 0;
 
         public HtmlRecord(Uri domain)
         {

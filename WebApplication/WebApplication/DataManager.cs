@@ -70,19 +70,12 @@ namespace WebApplication
             try
             {
                 HtmlRecord record = Database.Instance.htmlCollection.FindOneAs<HtmlRecord>(Query.EQ("url", newUpdate.domain.AbsoluteUri));
-                
-                if (record != null)
-                    Console.WriteLine("Accessing record: " + record.url);
-                else
-                    Console.WriteLine("Query returned null");
-
                 LinkOwner ownerResult = null;
                 if(record == null)
                 {
                     record = new HtmlRecord(newUpdate.domain);
                     ownerResult = record.AddResults(newUpdate, userid);
                     Database.Instance.htmlCollection.Save(record, WriteConcern.Acknowledged);
-                    Console.WriteLine("Saved " + record.domain.AbsoluteUri);
                     jobSchedule.AddNewJob(record.id, record.timeStamp);
                     processJobs.Set();
                 }
@@ -90,7 +83,6 @@ namespace WebApplication
                 {
                     ownerResult = record.AddResults(newUpdate, userid);
                     Database.Instance.htmlCollection.Save(record, WriteConcern.Acknowledged);
-                    Console.WriteLine("Saved " + record.domain.AbsoluteUri);
                 }
 
                 return ownerResult;
@@ -126,6 +118,21 @@ namespace WebApplication
                 throw ex;
             }
         }*/
+
+        public bool Edit(HtmlRecord record)
+        {
+            var result = Database.Instance.htmlCollection.FindAndModify(Query.And(Query.EQ("url", record.domain.AbsoluteUri),
+                                                                                  Query.EQ("Version", record.version)),
+                                                                        null,
+                                                                        Update.Set("_id", record.id)
+                                                                              .Set("url", record.url)
+                                                                              .Set("domain", record.domain.ToBson())
+                                                                              .Set("timeStamp", record.timeStamp)
+                                                                              .Set("results", record.results.ToBson())
+                                                                              .Set("serverResponse", record.serverResponse)
+                                                                              .Inc("version", 1));
+            return result.ModifiedDocument != null;
+        }
 
         public LinkOwner ModifyOwnership(LinkOwner newOwnerResults)
         {
