@@ -8,14 +8,13 @@ using System.Net;
 using System.Runtime.Serialization;
 using System.IO.Compression;
 using System.IO;
-using HtmlAgilityPack;
-using Fizzler.Systems.HtmlAgilityPack;
 using System.Threading;
 using System.Text.RegularExpressions;
+using HtmlAgilityPack;
+using Fizzler.Systems.HtmlAgilityPack;
 using MongoDB.Bson;
 using MongoDB.Bson.Serialization.Attributes;
 using MongoDB.Bson.Serialization.Options;
-using System.Diagnostics;
 
 namespace WebCrawler
 {
@@ -177,23 +176,23 @@ namespace WebCrawler
             jobStatus = JobStatus.HandlingResponse;
             if (htmlString != string.Empty)
             {
-                if (results.Any(obj => obj.Value.GetType() == typeof(TextUpdateResults)))
+                if (results.Any(obj => obj.Value.GetType() == typeof(TextUpdate)))
                 {
-                    foreach (TextUpdateResults textUpdate in results.Values)
+                    foreach (TextUpdate textUpdate in results.Values)
                     {
                         textUpdate.FilterByTags(htmlString);
                     }
                 }
 
-                if (results.Any(obj => obj.Value.GetType() == typeof(LinkFeedResults)))
+                if (results.Any(obj => obj.Value.GetType() == typeof(LinkFeed)))
                 {
                     MultiValueDictionary<string, ObjectId> links = new MultiValueDictionary<string, ObjectId>();
-                    foreach (LinkFeedResults feed in results.Values)
+                    foreach (LinkFeed feed in results.Values)
                     {
-                        List<string> filteredLinks = feed.FilterByTags(htmlString);
+                        HashSet<string> filteredLinks = feed.FilterByTags(htmlString);
                         foreach (string link in filteredLinks)
                         {
-                            links.Add(link, feed.jobId);
+                            links.Add(link, feed.id);
                         }
                     }
 
@@ -209,9 +208,9 @@ namespace WebCrawler
                     }
 
                     jobStatus = JobStatus.RankingPages;
-                    foreach (LinkFeedResults feed in results.Values)
+                    foreach (LinkFeed feed in results.Values)
                     {
-                        feed.RankByKeywords();
+                        feed.ProcessKeywordScores();
                     }
                 }
 

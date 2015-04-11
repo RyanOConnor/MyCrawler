@@ -16,29 +16,24 @@ namespace WebApplication
                     typeof(ModifyItem), typeof(RemoveItem), typeof(ChangePassword), typeof(DeleteUser))]
     public class UserMessage : Message, Serializable
     {
-        public ObjectId userId { get; set; }
+        public ObjectId userid { get; set; }
+        public string username { get; set; }
     }
 
     public class SyncRequest : UserMessage, Serializable
     {
-        ObjectId itemId { get; set; }
-
+        public LinkOwner linkOwner { get; set; }
         public SyncData RetrieveData()
         {
             SyncData response = null;
             try
             {
-                if (itemId != ObjectId.Empty)
-                {
-                    HtmlResults results = DataManager.Instance.ManualRequest(itemId);
-                    response = new SyncData(userId, results);
-                }
-                else
-                    response = new SyncData(userId, null);
+                LinkOwner results = DataManager.Instance.ManualRequest(linkOwner);
+                response = new SyncData(userid, results);
             }
             catch(Exception ex)
             {
-                response = new SyncData(userId, null);
+                response = new SyncData(userid, null);
                 throw ex;
             }
 
@@ -48,11 +43,11 @@ namespace WebApplication
 
     public class SyncData : UserMessage, Serializable
     {
-        public HtmlResults userData { get; set; }
+        public LinkOwner userData { get; set; }
 
-        public SyncData(ObjectId id, HtmlResults results)
+        public SyncData(ObjectId id, LinkOwner results)
         {
-            userId = id;
+            userid = id;
             userData = results;
         }
     }
@@ -60,7 +55,7 @@ namespace WebApplication
     public class ServerResponse : Message, Serializable
     {
         public ObjectId userId { get; set; }
-        public ObjectId jobId { get; set; }
+        public LinkOwner owner { get; set; }
         public Response serverResponse { get; set; }
 
         public ServerResponse(ObjectId user, Response response)
@@ -69,15 +64,15 @@ namespace WebApplication
             serverResponse = response;
         }
 
-        public void AddJobId(ObjectId jobId)
+        public void AddOwnerToResponse(LinkOwner owner)
         {
-            this.jobId = jobId;
+            this.owner = owner;
         }
     }
 
     public class CreateUser : UserMessage, Serializable
     {
-        public string username { get; set; }
+        public string enteredUserName { get; set; }
         public byte[] enteredPassword { get; set; }
 
         public ServerResponse Create()
@@ -91,7 +86,7 @@ namespace WebApplication
                     byte[] saltedHash = Authorize.GenerateSaltedHash(enteredPassword, salt);
                     Password password = new Password(saltedHash, salt);
 
-                    User newUser = new User(username, password);
+                    User newUser = new User(enteredUserName, password);
                     try
                     {
                         UserManager.Instance.SaveUser(newUser);
@@ -99,18 +94,18 @@ namespace WebApplication
                     }
                     catch(MongoWriteConcernException)
                     {
-                        response = new ServerResponse(userId, Response.UserAlreadyExists);
+                        response = new ServerResponse(userid, Response.UserAlreadyExists);
                     }
                 }
                 else
                 {
-                    response = new ServerResponse(userId, Response.InvalidPassword);
+                    response = new ServerResponse(userid, Response.InvalidPassword);
                 }
             }
             catch (Exception ex)
             {
                 Console.WriteLine(ex.ToString());
-                response = new ServerResponse(userId, Response.ServerError);
+                response = new ServerResponse(userid, Response.ServerError);
                 throw ex;
             }
 
@@ -122,7 +117,7 @@ namespace WebApplication
     {
         public string url { get; set; }
         public List<string> htmlTags { get; set; }
-        public List<string> keywords { get; set; }
+        public HashSet<string> keywords { get; set; }
 
         public ServerResponse AddLink()
         {
@@ -130,28 +125,29 @@ namespace WebApplication
 
             try
             {
-                User user = UserManager.Instance.FindUserByID(userId);
-                ObjectId itemId = ObjectId.Empty;
+                User user = UserManager.Instance.FindUserByID(userid);
+                LinkOwner results = null;
                 try
                 {
-                    itemId = user.AddLinkFeed(url, htmlTags, keywords);
-                }
-                catch(Exception)
-                {
-                    response = new ServerResponse(userId, Response.LinkAlreadyExist);
-                }
+                    results = user.AddLinkFeed(url, htmlTags, keywords);
 
-                if (itemId != null)
+                    if (results != null)
+                    {
+                        UserManager.Instance.SaveUser(user);
+                        response = new ServerResponse(user.id, Response.LinkAdded);
+                        response.AddOwnerToResponse(results);
+                    }
+                }
+                catch(Exception ex)
                 {
-                    UserManager.Instance.SaveUser(user);
-                    response = new ServerResponse(user.id, Response.LinkAdded);
-                    response.AddJobId(itemId);
+                    Console.WriteLine(ex.ToString());
+                    response = new ServerResponse(userid, Response.LinkAlreadyExist);
                 }
             }
             catch (Exception ex)
             {
                 Console.WriteLine(ex.ToString());
-                response = new ServerResponse(userId, Response.ServerError);
+                response = new ServerResponse(userid, Response.ServerError);
                 throw ex;
             }
 
@@ -171,25 +167,29 @@ namespace WebApplication
 
             try
             {
-                User user = UserManager.Instance.FindUserByID(this.userId);
-
-                ObjectId itemId = user.AddTextUpdate(url, htmlTags, innerText);
-
-                if (itemId != ObjectId.Empty)
+                User user = UserManager.Instance.FindUserByID(userid);
+                LinkOwner results = null;
+                try
                 {
-                    UserManager.Instance.SaveUser(user);
-                    response = new ServerResponse(user.id, Response.Success);
-                    response.AddJobId(itemId);
+                    results = user.AddTextUpdate(url, htmlTags, innerText);
+
+                    if(results != null)
+                    {
+                        UserManager.Instance.SaveUser(user);
+                        response = new ServerResponse(user.id, Response.LinkAdded);
+                        response.AddOwnerToResponse(results);
+                    }
                 }
-                else
+                catch(Exception ex)
                 {
-                    response = new ServerResponse(user.id, Response.RecordAlreadyExists);
+                    Console.WriteLine(ex.ToString());
+                    response = new ServerResponse(userid, Response.LinkAlreadyExist);
                 }
             }
             catch (Exception ex)
             {
                 Console.WriteLine(ex.ToString());
-                response = new ServerResponse(userId, Response.ServerError);
+                response = new ServerResponse(userid, Response.ServerError);
             }
 
             return response;
@@ -198,40 +198,34 @@ namespace WebApplication
 
     public class ModifyItem : UserMessage, Serializable
     {
-        public ObjectId itemId { get; set; }
-        public HtmlResults userResults { get; set; }
+        public LinkOwner modifiedKeywords { get; set; }
 
         public ServerResponse Modify()
         {
             ServerResponse response = null;
             try
             {
-                User user = UserManager.Instance.FindUserByID(this.userId);
-                ObjectId itemId = ObjectId.Empty;
-
-                if(userResults.GetType() == typeof(LinkFeed))
+                User user = UserManager.Instance.FindUserByID(this.userid);
+                LinkOwner results = null;
+                try
                 {
-                    itemId = user.ModifyLinkFeed(itemId, userResults as LinkFeed);
+                    results = user.ModifySubscription(modifiedKeywords);
+                    if (results != null)
+                    {
+                        response = new ServerResponse(user.id, Response.Success);
+                        response.AddOwnerToResponse(results);
+                    }
                 }
-                else if(userResults.GetType() == typeof(TextUpdate))
+                catch(Exception ex)
                 {
-                    itemId = user.ModifyTextUpdate(itemId, userResults as TextUpdate);
-                }
-
-                if (itemId != ObjectId.Empty)
-                {
-                    response = new ServerResponse(user.id, Response.Success);
-                    response.AddJobId(itemId);
-                }
-                else
-                {
-                    response = new ServerResponse(user.id, Response.ServerError);
+                    Console.WriteLine(ex.ToString());
+                    throw ex;
                 }
             }
             catch(Exception ex)
             {
                 Console.WriteLine(ex.ToString());
-                response = new ServerResponse(userId, Response.ServerError);
+                response = new ServerResponse(userid, Response.ServerError);
             }
 
             return response;
@@ -247,16 +241,16 @@ namespace WebApplication
             ServerResponse response = null;
             try
             {
-                User user = UserManager.Instance.FindUserByID(this.userId);
+                User user = UserManager.Instance.FindUserByID(this.userid);
                 user.RemoveLink(itemId);
                 UserManager.Instance.SaveUser(user);
 
-                response = new ServerResponse(userId, Response.Success);
+                response = new ServerResponse(userid, Response.Success);
             }
             catch(Exception ex)
             {
                 Console.WriteLine(ex.ToString());
-                response = new ServerResponse(userId, Response.ServerError);
+                response = new ServerResponse(userid, Response.ServerError);
             }
 
             return response;
@@ -274,7 +268,7 @@ namespace WebApplication
             {
                 if (Authorize.PassesGuidelines(newPassword))
                 {
-                    User user = UserManager.Instance.FindUserByID(userId);
+                    User user = UserManager.Instance.FindUserByID(userid);
 
                     byte[] salt = Authorize.GenerateSalt();
                     byte[] saltedHash = Authorize.GenerateSaltedHash(newPassword, salt);
@@ -284,23 +278,23 @@ namespace WebApplication
 
                     if (operationSuccessful)
                     {
-                        response = new ServerResponse(userId, Response.Success);
+                        response = new ServerResponse(userid, Response.Success);
                         UserManager.Instance.SaveUser(user);
                     }
                     else
                     {
-                        response = new ServerResponse(userId, Response.InvalidPassword);
+                        response = new ServerResponse(userid, Response.InvalidPassword);
                     }
                 }
                 else
                 {
-                    response = new ServerResponse(userId, Response.InvalidPassword);
+                    response = new ServerResponse(userid, Response.InvalidPassword);
                 }
             }
             catch(Exception ex)
             {
                 Console.WriteLine(ex.ToString());
-                response = new ServerResponse(userId, Response.ServerError);
+                response = new ServerResponse(userid, Response.ServerError);
             }
 
             return response;
@@ -320,7 +314,7 @@ namespace WebApplication
             catch(Exception ex)
             {
                 Console.WriteLine(ex.ToString());
-                response = new ServerResponse(userId, Response.ServerError);
+                response = new ServerResponse(userid, Response.ServerError);
             }
 
             return response;

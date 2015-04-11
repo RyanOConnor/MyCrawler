@@ -58,11 +58,12 @@ namespace WebApplication
         {
             SocketHandle clientHandle = (SocketHandle)sender;
             UserMessage userMessage = args.message as UserMessage;
-            ObjectId userId = userMessage.userId;
+            ObjectId userId = userMessage.userid;
 
             AddClient(userId, clientHandle);
 
             Message response = null;
+            Console.WriteLine("[Received {0}]  {1}", userMessage.username, args.message.GetType().ToString());
 
             if(args.message is SyncRequest)
             {
@@ -71,8 +72,8 @@ namespace WebApplication
             }
             else if(args.message is CreateUser)
             {
-                CreateUser newUser = args.message as CreateUser;
-                response = newUser.Create();
+                CreateUser newUserMessage = args.message as CreateUser;
+                response = newUserMessage.Create();
             }
             else if(args.message is AddLinkFeed)
             {
@@ -100,6 +101,7 @@ namespace WebApplication
                 response = deleteUser.Delete();
             }
 
+            Console.WriteLine("\t[Sent {0}]  {1}", response.GetType().ToString(), userMessage.username);
             byte[] bson = BSON.Serialize<Message>(response);
             Send(clientHandle, bson);
         }
@@ -135,12 +137,13 @@ namespace WebApplication
         {
             foreach(HtmlResults results in record.results.Values)
             {
-                IMongoQuery query = Query.EQ("Links.v._id", results.jobId);
+                IMongoQuery query = Query.EQ("Links.v._id", results.id);
                 MongoCursor<User> users = Database.Instance.userCollection.FindAs<User>(query);
 
                 foreach(User user in users)
                 {
                     // Send SyncData notification to all users associated with HtmlRecord object
+
                 }
             }
         }

@@ -24,19 +24,11 @@ namespace WebCrawler
 
         protected override void HandleResponse(HttpWebResponse response)
         {
-            string type = string.Empty;
+            string contentType = string.Empty;
             try
             {
-                type = response.Headers["content-type"];
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine(ex.ToString());
-                InvokeLoadErrorEvent();
-            }
-            finally
-            {
-                if (NotBinaryFileType(type))
+                contentType = response.Headers["content-type"];
+                if (NotBinaryFileType(contentType))
                 {
                     if (response.StatusCode == HttpStatusCode.OK)
                     {
@@ -46,8 +38,12 @@ namespace WebCrawler
                         htmlDoc.LoadHtml(htmlString);
                     }
                 }
-
                 InvokeLoadedEvent();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine(ex.ToString());
+                InvokeLoadErrorEvent();
             }
         }
 
@@ -71,7 +67,9 @@ namespace WebCrawler
 
         private bool NotBinaryFileType(string type)
         {
-            if (type.Contains("text") || type.Contains("html"))
+            if (type == string.Empty)
+                return false;
+            else if (type.Contains("text") || type.Contains("html"))
                 return true;
             else
                 return false;

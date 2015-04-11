@@ -65,62 +65,82 @@ namespace WebApplication
             }
         }
 
-        public HtmlResults CreateEntry(HtmlResults newUpdate, ObjectId userId)
+        public LinkOwner CreateEntry(IHtmlResults newUpdate, ObjectId userid)
         {
-            Type updateType = newUpdate.GetType();
-            MongoCursor<HtmlRecord> records = Database.Instance.htmlCollection.FindAs<HtmlRecord>(Query.EQ("url", newUpdate.domain.AbsoluteUri));
-
             try
             {
-                HtmlResults results = null;
-                if (records.Count() == 0)
-                {
-                    HtmlRecord newHtmlRecord = new HtmlRecord(newUpdate.domain);
-                    if (updateType == typeof(LinkFeed))
-                    {
-                        LinkFeed linkFeed = newUpdate as LinkFeed;
-                        results = newHtmlRecord.AddLinkFeed(linkFeed, userId) as LinkFeedResults;
-                    }
-                    else if (updateType == typeof(TextUpdate))
-                    {
-                        TextUpdate textUpdate = newUpdate as TextUpdate;
-                        results = newHtmlRecord.AddTextUpdate(textUpdate, userId) as TextUpdateResults;
-                    }
+                HtmlRecord record = Database.Instance.htmlCollection.FindOneAs<HtmlRecord>(Query.EQ("url", newUpdate.domain.AbsoluteUri));
+                
+                if (record != null)
+                    Console.WriteLine("Accessing record: " + record.url);
+                else
+                    Console.WriteLine("Query returned null");
 
-                    Database.Instance.htmlCollection.Save(newHtmlRecord, WriteConcern.Acknowledged);
-                    jobSchedule.AddNewJob(newHtmlRecord.id, newHtmlRecord.timeStamp);
+                LinkOwner ownerResult = null;
+                if(record == null)
+                {
+                    record = new HtmlRecord(newUpdate.domain);
+                    ownerResult = record.AddResults(newUpdate, userid);
+                    Database.Instance.htmlCollection.Save(record, WriteConcern.Acknowledged);
+                    Console.WriteLine("Saved " + record.domain.AbsoluteUri);
+                    jobSchedule.AddNewJob(record.id, record.timeStamp);
                     processJobs.Set();
-
-                    return results;
-                }
-                else if (records.Count() == 1)
-                {
-                    HtmlRecord recordToModify = records.First();
-                    if (updateType == typeof(LinkFeed))
-                    {
-                        LinkFeed linkFeed = newUpdate as LinkFeed;
-                        results = recordToModify.AddLinkFeed(linkFeed, userId);
-                    }
-                    else if (updateType == typeof(TextUpdate))
-                    {
-                        TextUpdate textUpdate = newUpdate as TextUpdate;
-                        results = recordToModify.AddTextUpdate(textUpdate, userId) as TextUpdateResults;
-                    }
-
-                    Database.Instance.htmlCollection.Save(recordToModify, WriteConcern.Acknowledged);
-
-                    return results;
                 }
                 else
                 {
-                    throw new Exception();
+                    ownerResult = record.AddResults(newUpdate, userid);
+                    Database.Instance.htmlCollection.Save(record, WriteConcern.Acknowledged);
+                    Console.WriteLine("Saved " + record.domain.AbsoluteUri);
                 }
+
+                return ownerResult;
             }
             catch(MongoWriteConcernException ex)
             {
-                // If duplicate found, just call modify record
                 Console.WriteLine(ex.ToString());
-                return ModifyEntry(newUpdate, userId);
+                // TODO: stop potential stack overflow exception
+                return CreateEntry(newUpdate, userid);
+            }
+        }
+
+        // replicates CreateEntry in the event of record duplication during a parallel "Save"
+        //      
+        /*public LinkOwner ModifyHtmlResults(IHtmlResults modifiedEntry, LinkOwner owner)
+        {
+            try
+            {
+                HtmlRecord record = Database.Instance.htmlCollection.FindOneAs<HtmlRecord>(Query.EQ("url", modifiedEntry.domain.AbsoluteUri));
+                LinkOwner ownerResult = record.ModifyResults(modifiedEntry, owner);
+
+                Database.Instance.htmlCollection.Save(record, WriteConcern.Acknowledged);
+                return ownerResult;
+            }
+            catch(MongoWriteConcernException ex)
+            {
+                Console.WriteLine(ex.ToString());
+                throw ex;
+            }
+            catch(Exception ex)
+            {
+                Console.WriteLine(ex.ToString());
+                throw ex;
+            }
+        }*/
+
+        public LinkOwner ModifyOwnership(LinkOwner newOwnerResults)
+        {
+            try
+            {
+                HtmlRecord record = RetrieveEntryById(newOwnerResults.resultsid);
+                LinkOwner linkOwner = record.ModifyOwner(newOwnerResults);
+
+                Database.Instance.htmlCollection.Save(record, WriteConcern.Acknowledged);
+                return linkOwner;
+            }
+            catch(MongoWriteConcernException ex)
+            {
+                Console.WriteLine(ex.ToString());
+                throw ex;
             }
             catch(Exception ex)
             {
@@ -129,48 +149,35 @@ namespace WebApplication
             }
         }
 
-        public HtmlResults ModifyEntry(HtmlResults modifiedEntry, ObjectId userId)
-        {
-            HtmlResults newResults = null;
-            MongoCollection<HtmlRecord> htmlCollection = Database.Instance.htmlCollection;
-            MongoCursor<HtmlRecord> records = htmlCollection.FindAs<HtmlRecord>(Query.EQ("Results.k", modifiedEntry.jobId));
-
-            if (records.Count() == 1)
-            {
-                HtmlRecord recordToModify = records.First();
-                HtmlResults results = recordToModify.results[modifiedEntry.jobId];
-                if (results.GetType() == typeof(LinkFeedResults))
-                {
-                    LinkFeedResults feedResults = results as LinkFeedResults;
-                    feedResults.RemoveOwner(userId);
-                    htmlCollection.Save(recordToModify);
-
-                    newResults = CreateEntry(modifiedEntry, userId) as LinkFeedResults;
-                }
-                else if (results.GetType() == typeof(TextUpdateResults))
-                {
-                    TextUpdateResults textResults = results as TextUpdateResults;
-                    textResults.RemoveOwner(userId);
-                    htmlCollection.Save(recordToModify);
-
-                    newResults = CreateEntry(modifiedEntry, userId) as TextUpdateResults;
-                }
-
-                return newResults;
-            }
-            else
-            {
-                throw new Exception();
-            }
-        }
-
-        public HtmlResults ManualRequest(ObjectId jobId)
+        // User is unsubscribing altogether
+        public void RemoveResultsOwner(LinkOwner entryToRemove)
         {
             try
             {
-                IMongoQuery query = Query.EQ("Results.k", jobId);
+                HtmlRecord record = RetrieveEntryById(entryToRemove.resultsid);
+                record.RemoveResultsOwner(entryToRemove);
+
+                Database.Instance.htmlCollection.Save(record, WriteConcern.Acknowledged);
+            }
+            catch(MongoWriteConcernException ex)
+            {
+                Console.WriteLine(ex.ToString());
+                throw ex;
+            }
+            catch(Exception ex)
+            {
+                Console.WriteLine(ex.ToString());
+                throw ex;
+            }
+        }
+
+        public LinkOwner ManualRequest(LinkOwner owner)
+        {
+            try
+            {
+                IMongoQuery query = Query.EQ("results.k", owner.resultsid);
                 HtmlRecord record = Database.Instance.htmlCollection.FindOne(query);
-                return record.results[jobId];
+                return record.results[owner.resultsid].RetrieveResults(owner.userid);
             }
             catch(Exception ex)
             {

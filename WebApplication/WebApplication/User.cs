@@ -30,24 +30,25 @@ namespace WebApplication
         public Password password { get; set; }
         public List<Password> previousPasswords { get; set; }
         [BsonDictionaryOptions(DictionaryRepresentation.ArrayOfDocuments)]
-        public Dictionary<ObjectId, HtmlResults> links { get; private set; }
+        public Dictionary<ObjectId, LinkOwner> links { get; private set; }
 
         public User(string newUserName, Password newPassword)
         {
             username = newUserName;
             password = newPassword;
-            links = new Dictionary<ObjectId, HtmlResults>();
+            links = new Dictionary<ObjectId, LinkOwner>();
+            previousPasswords = new List<Password>();
         }
 
-        public ObjectId AddLinkFeed(string url, List<string> htmlTags, List<string> keywords)
+        public LinkOwner AddLinkFeed(string url, List<string> htmlTags, HashSet<string> keywords)
         {
             if (!links.Any(pair => pair.Value.domain.OriginalString == url &&
                                    pair.Value.htmlTags.SequenceEqual(htmlTags)))
             {
-                LinkFeed linkFeed = new LinkFeed(url, htmlTags, keywords);
-                LinkFeedResults feedResults = DataManager.Instance.CreateEntry(linkFeed, id) as LinkFeedResults;
-                links.Add(feedResults.jobId, linkFeed);
-                return feedResults.jobId;
+                ILinkFeed linkFeed = new LinkFeed(url, htmlTags, keywords);
+                FeedOwner feedResults = DataManager.Instance.CreateEntry(linkFeed, id) as FeedOwner;
+                links.Add(feedResults.resultsid, feedResults);
+                return feedResults;
             }
             else
             {
@@ -55,15 +56,15 @@ namespace WebApplication
             }
         }
 
-        public ObjectId AddTextUpdate(string url, List<string> htmlTags, string innerText)
+        public LinkOwner AddTextUpdate(string url, List<string> htmlTags, string innerText)
         {
             if (!links.Any(pair => pair.Value.domain.OriginalString == url &&
                                   pair.Value.htmlTags.SequenceEqual(htmlTags)))
             {
-                TextUpdate textUpdate = new TextUpdate(url, htmlTags, innerText);
-                TextUpdateResults textResults = DataManager.Instance.CreateEntry(textUpdate, id) as TextUpdateResults;
-                links.Add(textResults.jobId, textUpdate);
-                return textResults.jobId;
+                ITextUpdate textUpdate = new TextUpdate(url, htmlTags, innerText);
+                TextOwner textResults = DataManager.Instance.CreateEntry(textUpdate, id) as TextOwner;
+                links.Add(textResults.resultsid, textResults);
+                return textResults;
             }
             else
             {
@@ -71,13 +72,13 @@ namespace WebApplication
             }
         }
 
-        public ObjectId ModifyLinkFeed(ObjectId itemId, LinkFeed linkFeed)
+        public LinkOwner ModifySubscription(LinkOwner modifiedResults)
         {
-            if (links.ContainsKey(itemId))
+            if(links.ContainsKey(modifiedResults.resultsid))
             {
-                LinkFeedResults feedResults = DataManager.Instance.ModifyEntry(linkFeed, id) as LinkFeedResults;
-                links.Add(feedResults.jobId, linkFeed);
-                return feedResults.jobId;
+                LinkOwner linkOwner = DataManager.Instance.ModifyOwnership(modifiedResults);
+                links[modifiedResults.resultsid] = linkOwner;
+                return linkOwner;
             }
             else
             {
@@ -85,25 +86,11 @@ namespace WebApplication
             }
         }
 
-        public ObjectId ModifyTextUpdate(ObjectId itemId, TextUpdate textUpdate)
+        public void UpdateResults(LinkOwner userResults, ObjectId itemid)
         {
-            if (links.ContainsKey(itemId))
+            if (links.ContainsKey(itemid))
             {
-                TextUpdateResults textResults = DataManager.Instance.ModifyEntry(textUpdate, id) as TextUpdateResults;
-                links.Add(textResults.jobId, textUpdate);
-                return textResults.jobId;
-            }
-            else
-            {
-                throw new Exception();
-            }
-        }
-
-        public void UpdateResults(ObjectId recordId, HtmlResults results)
-        {
-            if (links.ContainsKey(recordId))
-            {
-                links[recordId] = results;
+                links[itemid] = userResults;
             }
             else
                 throw new Exception();

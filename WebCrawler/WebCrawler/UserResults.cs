@@ -15,16 +15,23 @@ using MongoDB.Bson.Serialization.Options;
 
 namespace WebCrawler
 {
-    [BsonKnownTypes(typeof(LinkFeed), typeof(TextUpdate))]
-    public class HtmlResults : Serializable
+    [BsonKnownTypes(typeof(HtmlResults))]
+    public abstract class UserResultsBase
     {
-        [BsonId]
-        public ObjectId jobId { get; set; }
         public Uri domain { get; set; }
         public List<string> htmlTags { get; set; }
-        public bool changeInContent { get; set; }
+    }
+
+    //[BsonIgnoreExtraElements]
+    [BsonKnownTypes(typeof(LinkFeed), typeof(TextUpdate))]
+    public class HtmlResults : UserResultsBase, Serializable
+    {
+        public ObjectId id { get; set; }
+        [BsonDictionaryOptionsAttribute(DictionaryRepresentation.ArrayOfDocuments)]
+        protected Dictionary<ObjectId, LinkOwner> linkOwners { get; set; }
         [BsonIgnore]
         private List<ChildPage> _childPages = new List<ChildPage>();
+        [BsonIgnore]
         protected List<ChildPage> childPages
         {
             get { lock (_childPages) { return _childPages; } }
@@ -40,19 +47,18 @@ namespace WebCrawler
         }
     }
 
-    [BsonKnownTypes(typeof(LinkFeedResults))]
+    //[BsonKnownTypes(typeof(LinkFeedResults))]
     public class LinkFeed : HtmlResults, Serializable
     {
-        public List<string> keywords { get; set; }
-    }
-
-    public class LinkFeedResults : LinkFeed, Serializable
-    {
-        public List<ObjectId> users { get; set; }
+        public HashSet<string> keywords { get; set; }
+        //[BsonDictionaryOptionsAttribute(DictionaryRepresentation.ArrayOfDocuments)]
+        //public Dictionary<string, int> keywordScores { get; set; }
+        //[BsonDictionaryOptionsAttribute(DictionaryRepresentation.ArrayOfDocuments)]
+        //private Dictionary<ObjectId, FeedOwner> feedOwners { get; set; }
         [BsonDictionaryOptionsAttribute(DictionaryRepresentation.ArrayOfDocuments)]
-        public Dictionary<string, int> rankedResults { get; set; }
+        public Dictionary<string, List<ObjectId>> keywordOwners { get; set; }
 
-        public List<string> FilterByTags(string html)
+        public HashSet<string> FilterByTags(string html)
         {
             try
             {
@@ -74,7 +80,7 @@ namespace WebCrawler
 
                 IEnumerable<string> queryResults = htmlDoc.DocumentNode.QuerySelectorAll(query).Select(x => x.Attributes["href"].Value);
 
-                List<string> links = new List<string>(queryResults);
+                HashSet<string> links = new HashSet<string>(queryResults);
                 links = FixUrls(links);
 
                 return links;
@@ -86,7 +92,7 @@ namespace WebCrawler
             }
         }
 
-        private List<string> FixUrls(List<string> urls)
+        private HashSet<string> FixUrls(HashSet<string> urls)
         {
             urls.Remove(domain.AbsoluteUri);
 
@@ -109,10 +115,40 @@ namespace WebCrawler
                 }
             }
 
-            return fixedUrlSet.ToList();
+            return fixedUrlSet;
         }
 
-        public void RankByKeywords()
+        public void ProcessKeywordScores()
+        {
+            foreach(ChildPage page in childPages)
+            {
+                if(page.htmlDoc != null)
+                {
+                    string innerText = page.htmlDoc.DocumentNode.InnerText.ToLower();
+                    foreach(KeyValuePair<string, List<ObjectId>> keyword in keywordOwners)
+                    {
+                        int keywordScore = 0;
+                        if (innerText.Contains(keyword.Key.ToLower()))
+                        {
+                            keywordScore = Regex.Matches(innerText, keyword.Key).Count;
+                            foreach (ObjectId userid in keyword.Value)
+                            {
+                                if(!(linkOwners[userid] as FeedOwner).userPageRank.ContainsKey(page.domain.AbsoluteUri))
+                                {
+                                    (linkOwners[userid] as FeedOwner).userPageRank.Add(page.domain.AbsoluteUri, keywordScore);
+                                }
+                                else
+                                {
+                                    (linkOwners[userid] as FeedOwner).userPageRank[page.domain.AbsoluteUri] += keywordScore;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        /*public void RankByKeywords()
         {
             IOrderedEnumerable<KeyValuePair<string, int>> sortedList = null;
 
@@ -141,19 +177,23 @@ namespace WebCrawler
 
             sortedList = from entry in results orderby entry.Value descending select entry;
             rankedResults = sortedList.ToDictionary(pair => pair.Key, pair => pair.Value);
-        }
+        }*/
     }
 
-    [BsonKnownTypes(typeof(TextUpdateResults))]
+    /*public class LinkFeedResults : LinkFeed, Serializable
+    {
+        public List<ObjectId> users { get; set; }
+        [BsonDictionaryOptionsAttribute(DictionaryRepresentation.ArrayOfDocuments)]
+        public Dictionary<string, int> rankedResults { get; set; }
+
+        
+    }*/
+
+    //[BsonKnownTypes(typeof(TextUpdateResults))]
     public class TextUpdate : HtmlResults, Serializable
     {
         public string previousText { get; set; }
         public string currentText { get; set; }
-    }
-
-    public class TextUpdateResults : TextUpdate, Serializable
-    {
-        public List<ObjectId> users { get; set; }
 
         public void FilterByTags(string html)
         {
@@ -177,23 +217,28 @@ namespace WebCrawler
 
                 IEnumerable<string> results = htmlDoc.DocumentNode.QuerySelectorAll(query).Select(x => x.InnerText);
 
+                bool change = false;
                 if (results.Count() == 0)
                 {
-                    changeInContent = true;
+                    change = true;
                 }
                 else if (results.Count() == 1)
                 {
                     currentText = results.Single(x => x != null);
                     if (currentText != previousText)
-                        changeInContent = true;
+                        change = true;
                     else
-                        changeInContent = false;
+                        change = false;
                 }
                 else
                 {
                     // Multiple elements returned, tags need to be adjusted to be more precise in finding content
                 }
 
+                foreach(TextOwner textOwner in linkOwners.Values)
+                {
+                    textOwner.changeInContent = change;
+                }
             }
             catch (Exception ex)
             {
@@ -201,5 +246,25 @@ namespace WebCrawler
                 throw ex;
             }
         }
+    }
+
+    [BsonKnownTypes(typeof(FeedOwner), typeof(TextOwner))]
+    public class LinkOwner : UserResultsBase
+    {
+        public ObjectId resultsid { get; set; }
+        public ObjectId userid { get; set; }
+        public bool changeInContent { get; set; }
+    }
+
+    public class FeedOwner : LinkOwner
+    {
+        public HashSet<string> keywords { get; set; }
+        public Dictionary<string, int> userPageRank { get; set; }
+
+    }
+
+    public class TextOwner : LinkOwner
+    {
+        public string previousText { get; set; }
     }
 }

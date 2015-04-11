@@ -18,16 +18,6 @@ namespace WebCrawler
         public event EventHandler<MessageEventArgs> MessageReceived;
         public event EventHandler<ClientConnectedArgs> ClientConnected;
         protected ManualResetEvent listenerSignal = new ManualResetEvent(false);
-        private static SocketServer _instance;
-        public static SocketServer Instance
-        {
-            get
-            {
-                if (_instance == null)
-                    _instance = new SocketServer();
-                return _instance;
-            }
-        }
 
         public void StartClient(string ip)
         {

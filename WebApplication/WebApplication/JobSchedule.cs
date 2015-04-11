@@ -119,7 +119,7 @@ namespace WebApplication
             jobStatus[jobId] = RecordStatus.Processing;
             SetStatusTimer(jobId);
 
-            PrintJobStatus();
+            //PrintJobStatus();
 
             return jobId;
         }
@@ -133,7 +133,7 @@ namespace WebApplication
             jobSet[jobId].DestroyTimer();
             jobStatus[jobId] = RecordStatus.Waiting;
 
-            PrintJobStatus();
+            //PrintJobStatus();
         }
 
         public void AddNewJob(ObjectId jobId, DateTime time)

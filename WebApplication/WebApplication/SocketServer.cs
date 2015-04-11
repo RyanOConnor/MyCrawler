@@ -97,7 +97,6 @@ namespace WebApplication
                             break;
                         }
                     }
-
                     EventHandler<MessageEventArgs> messageReceived = MessageReceived;
                     if (messageReceived != null)
                     {
