@@ -175,6 +175,7 @@ namespace WebApplication
             }
             else
             {
+                string str = Encoding.UTF8.GetString(fullBuffer);
                 throw new Exception("\n\n\n[Buffer destroyed]\n\n\n");
             }
         }
@@ -201,6 +202,35 @@ namespace WebApplication
                     byte[] data = new byte[msg.Length - 10];
                     Buffer.BlockCopy(msg, 5, data, 0, msg.Length - 10);
                     message = BSON.Deserialize<Message>(data);
+                }
+                else
+                {
+                    message = new DestroyedBuffer();
+                }
+            }
+            catch(Exception ex)
+            {
+                message = new DestroyedBuffer();
+                throw ex;
+            }
+        }
+    }
+
+    public class AndroidMessageEventArgs : EventArgs
+    {
+        public Message message { get; set; }
+
+        public AndroidMessageEventArgs(byte[] msg, string endOfMessage)
+        {
+            try
+            {
+                string beginning = Encoding.UTF8.GetString(msg.Take(7).ToArray());
+
+                if (beginning == "\0|<BOF>" && endOfMessage == "<EOF>")
+                {
+                    byte[] data = new byte[msg.Length - 12];
+                    Buffer.BlockCopy(msg, 7, data, 0, msg.Length - 12);
+                    message = JSON.Deserialize<Message>(Encoding.UTF8.GetString(data));
                 }
                 else
                 {

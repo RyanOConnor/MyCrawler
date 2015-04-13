@@ -34,7 +34,7 @@ namespace WebApplication
 
         public void Start()
         {
-            this.MessageReceived += new EventHandler<MessageEventArgs>(ClientMessageReceived);
+            this.MessageReceived += new EventHandler<AndroidMessageEventArgs>(ClientMessageReceived);
             this.StartListener();
         }
 
@@ -54,56 +54,59 @@ namespace WebApplication
             }
         }
 
-        public void ClientMessageReceived(object sender, MessageEventArgs args)
+        public void ClientMessageReceived(object sender, AndroidMessageEventArgs args)
         {
-            SocketHandle clientHandle = (SocketHandle)sender;
-            UserMessage userMessage = args.message as UserMessage;
-            ObjectId userId = userMessage.userid;
+            if (!(args.message is DestroyedBuffer))
+            {
+                SocketHandle clientHandle = (SocketHandle)sender;
+                UserMessage userMessage = args.message as UserMessage;
+                ObjectId userId = userMessage.userid;
 
-            AddClient(userId, clientHandle);
+                AddClient(userId, clientHandle);
 
-            Message response = null;
-            Console.WriteLine("[Received {0}]  {1}", userMessage.username, args.message.GetType().ToString());
+                Message response = null;
+                Console.WriteLine("[Received {0}]  {1}", userMessage.username, args.message.GetType().ToString());
 
-            if(args.message is SyncRequest)
-            {
-                SyncRequest syncRequest = args.message as SyncRequest;
-                response = syncRequest.RetrieveData();
-            }
-            else if(args.message is CreateUser)
-            {
-                CreateUser newUserMessage = args.message as CreateUser;
-                response = newUserMessage.Create();
-            }
-            else if(args.message is AddLinkFeed)
-            {
-                AddLinkFeed linkFeed = args.message as AddLinkFeed;
-                response = linkFeed.AddLink();
-            }
-            else if(args.message is AddTextUpdate)
-            {
-                AddTextUpdate textUpdate = args.message as AddTextUpdate;
-                response = textUpdate.AddLink();
-            }
-            else if(args.message is ChangePassword)
-            {
-                ChangePassword changePassword = args.message as ChangePassword;
-                response = changePassword.Start();
-            }
-            else if(args.message is ModifyItem)
-            {
-                ModifyItem modifyItem = args.message as ModifyItem;
-                response = modifyItem.Modify();
-            }
-            else if(args.message is DeleteUser)
-            {
-                DeleteUser deleteUser = args.message as DeleteUser;
-                response = deleteUser.Delete();
-            }
+                if (args.message is SyncRequest)
+                {
+                    SyncRequest syncRequest = args.message as SyncRequest;
+                    response = syncRequest.RetrieveData();
+                }
+                else if (args.message is CreateUser)
+                {
+                    CreateUser newUserMessage = args.message as CreateUser;
+                    response = newUserMessage.Create();
+                }
+                else if (args.message is AddLinkFeed)
+                {
+                    AddLinkFeed linkFeed = args.message as AddLinkFeed;
+                    response = linkFeed.AddLink();
+                }
+                else if (args.message is AddTextUpdate)
+                {
+                    AddTextUpdate textUpdate = args.message as AddTextUpdate;
+                    response = textUpdate.AddLink();
+                }
+                else if (args.message is ChangePassword)
+                {
+                    ChangePassword changePassword = args.message as ChangePassword;
+                    response = changePassword.Start();
+                }
+                else if (args.message is ModifyItem)
+                {
+                    ModifyItem modifyItem = args.message as ModifyItem;
+                    response = modifyItem.Modify();
+                }
+                else if (args.message is DeleteUser)
+                {
+                    DeleteUser deleteUser = args.message as DeleteUser;
+                    response = deleteUser.Delete();
+                }
 
-            Console.WriteLine("\t[Sent {0}]  {1}", response.GetType().ToString(), userMessage.username);
-            byte[] bson = BSON.Serialize<Message>(response);
-            Send(clientHandle, bson);
+                Console.WriteLine("\t[Sent {0}]  {1}", response.GetType().ToString(), userMessage.username);
+                byte[] bson = BSON.Serialize<Message>(response);
+                Send(clientHandle, bson);
+            }
         }
 
         public bool ValidateLoginAttempt(ObjectId userid, string username, byte[] enteredPassword)

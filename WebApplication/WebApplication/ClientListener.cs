@@ -17,7 +17,7 @@ namespace WebApplication
         protected ManualResetEvent connectDone = new ManualResetEvent(false);
         protected ManualResetEvent sendDone = new ManualResetEvent(false);
         protected ManualResetEvent receiveDone = new ManualResetEvent(false);
-        public event EventHandler<MessageEventArgs> MessageReceived;
+        public event EventHandler<AndroidMessageEventArgs> MessageReceived;
 
         public void StartListener()
         {
@@ -90,11 +90,11 @@ namespace WebApplication
                     {
                         if (socketHandle.fullBuffer.Length > 1)
                         {
-                            EventHandler<MessageEventArgs> messageReceived = MessageReceived;
+                            EventHandler<AndroidMessageEventArgs> messageReceived = MessageReceived;
                             if (messageReceived != null)
                             {
                                 messageReceived.BeginInvoke(socketHandle, 
-                                                            new MessageEventArgs(socketHandle.fullBuffer, socketHandle.EndOfMessage()),
+                                                            new AndroidMessageEventArgs(socketHandle.fullBuffer, socketHandle.EndOfMessage()),
                                                             OnEventFinished, null);
                             }
 

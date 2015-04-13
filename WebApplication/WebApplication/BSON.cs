@@ -35,35 +35,6 @@ namespace WebApplication
                 throw ex;
             }
         }
-        
-        public static BsonDocument ToBsonDocument<T>(this T obj) where T : Serializable
-        {
-            try
-            {
-                BsonDocument doc = obj.ToBsonDocument<T>();
-                return doc;
-            }
-            catch(Exception ex)
-            {
-                Console.WriteLine(ex.ToString());
-                throw ex;
-            }
-        }
-
-        public static BsonDocument ToBsonDocument<T>(HtmlRecord record) where T : HtmlRecord, Serializable
-        {
-            try
-            {
-                BsonDocument doc = record.ToBsonDocument();
-                doc.Remove("results.userInstance");
-                return doc;
-            }
-            catch(Exception ex)
-            {
-                Console.WriteLine(ex.ToString());
-                throw ex;
-            }
-        }
 
         public static T Deserialize<T>(byte[] bson) where T : Serializable
         {
