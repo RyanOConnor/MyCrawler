@@ -18,7 +18,6 @@ namespace WebApplication
 {
     public class UserManager : ClientListener
     {
-        public enum QueueStatus { createUser, findUserById, findUserByUserName, addLinkTouser, removeLinkFromUser, modifyUserLink, deleteUser };
         private Dictionary<ObjectId, SocketHandle> clients = new Dictionary<ObjectId, SocketHandle>();
         private ConcurrentQueue<Message> clientMessageQueue = new ConcurrentQueue<Message>();
         private static UserManager _instance;
