@@ -93,7 +93,7 @@ namespace WebApplication
                             EventHandler<AndroidMessageEventArgs> messageReceived = MessageReceived;
                             if (messageReceived != null)
                             {
-                                messageReceived.BeginInvoke(socketHandle, 
+                                messageReceived.BeginInvoke(socketHandle,
                                                             new AndroidMessageEventArgs(socketHandle.fullBuffer, socketHandle.EndOfMessage()),
                                                             OnEventFinished, null);
                             }
