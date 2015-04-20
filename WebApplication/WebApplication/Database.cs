@@ -38,7 +38,7 @@ namespace WebApplication
             _htmlCollection = db.GetCollection<HtmlRecord>("CrawlData");
             _userCollection = db.GetCollection<User>("UserData");
 
-            if (!_htmlCollection.IndexExists(IndexKeys<HtmlRecord>.Ascending(val => val.url)))
+            if(!_htmlCollection.IndexExists(IndexKeys<HtmlRecord>.Ascending(val => val.url)))
                 _htmlCollection.CreateIndex(IndexKeys<HtmlRecord>.Ascending(val => val.url), IndexOptions.SetUnique(true));
             if(!_userCollection.IndexExists(IndexKeys<User>.Ascending(val => val.username)))
                 _userCollection.CreateIndex(IndexKeys<User>.Ascending(val => val.username), IndexOptions.SetUnique(true));
