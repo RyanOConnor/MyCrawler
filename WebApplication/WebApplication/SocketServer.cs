@@ -8,6 +8,7 @@ using System.Net.Sockets;
 using System.Threading;
 using System.IO;
 using System.Runtime.Serialization.Json;
+using MongoDB.Bson;
 
 namespace WebApplication
 {
@@ -197,11 +198,14 @@ namespace WebApplication
             {
                 string beginning = Encoding.UTF8.GetString(msg.Take(5).ToArray());
 
+
                 if (beginning == "<BOF>" && endOfMessage == "<EOF>")
                 {
                     byte[] data = new byte[msg.Length - 10];
                     Buffer.BlockCopy(msg, 5, data, 0, msg.Length - 10);
+                    string viewMessageTest = Encoding.UTF8.GetString(data);
                     message = BSON.Deserialize<Message>(data);
+                    string json = message.ToJson();
                 }
                 else
                 {
@@ -226,7 +230,7 @@ namespace WebApplication
             {
                 string beginning = Encoding.UTF8.GetString(msg.Take(7).ToArray());
 
-                if (beginning == "\0|<BOF>" && endOfMessage == "<EOF>")
+                if (beginning == "\0�<BOF>" && endOfMessage == "<EOF>")
                 {
                     byte[] data = new byte[msg.Length - 12];
                     Buffer.BlockCopy(msg, 7, data, 0, msg.Length - 12);
