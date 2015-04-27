@@ -1,7 +1,8 @@
 package com.android.ryan.cloudcrawlerclient;
 
-import android.content.Context;
+import android.app.FragmentTransaction;
 import android.content.Intent;
+import android.support.v4.app.FragmentManager;
 import android.support.v7.app.ActionBarActivity;
 import android.app.Activity;
 import android.support.v7.app.ActionBar;
@@ -19,10 +20,19 @@ import android.view.MenuInflater;
 import android.view.MenuItem;
 import android.view.View;
 import android.view.ViewGroup;
+import android.webkit.WebView;
+import android.webkit.WebViewClient;
 import android.widget.AdapterView;
 import android.widget.ArrayAdapter;
+import android.widget.ExpandableListView;
 import android.widget.ListView;
 import android.widget.Toast;
+
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.List;
 
 /**
  * Fragment used for managing interactions for and presentation of a navigation drawer.
@@ -31,7 +41,6 @@ import android.widget.Toast;
  */
 public class NavigationDrawerFragment extends Fragment {
 
-    Context mContext;
     /**
      * Remember the position of the selected item.
      */
@@ -54,12 +63,16 @@ public class NavigationDrawerFragment extends Fragment {
     private ActionBarDrawerToggle mDrawerToggle;
 
     private DrawerLayout mDrawerLayout;
-    private ListView mDrawerListView;
+    private ExpandableListView mDrawerListView;
     private View mFragmentContainerView;
 
     private int mCurrentSelectedPosition = 0;
     private boolean mFromSavedInstanceState;
     private boolean mUserLearnedDrawer;
+
+    public static ExpandableListAdapter listAdapter;
+    private List<String> dataHeaders;
+    private HashMap<String, List<String>> dataChildren;
 
     public NavigationDrawerFragment() {
     }
@@ -86,14 +99,91 @@ public class NavigationDrawerFragment extends Fragment {
     public void onActivityCreated(Bundle savedInstanceState) {
         super.onActivityCreated(savedInstanceState);
         // Indicate that this fragment would like to influence the set of actions in the action bar.
+        createExpandable();
         setHasOptionsMenu(true);
     }
 
     @Override
     public View onCreateView(LayoutInflater inflater, ViewGroup container,
                              Bundle savedInstanceState) {
-        mDrawerListView = (ListView) inflater.inflate(
+        mDrawerListView = (ExpandableListView) inflater.inflate(
                 R.layout.fragment_navigation_drawer, container, false);
+
+        //createExpandable();
+        //createStandard();
+        mDrawerListView.setItemChecked(mCurrentSelectedPosition, true);
+        return mDrawerListView;
+    }
+
+    public void createExpandable(){
+        prepareListData();
+        listAdapter = new ExpandableListAdapter(mFragmentContainerView.getContext(), dataHeaders, dataChildren);
+        mDrawerListView.setAdapter(listAdapter);
+        mDrawerListView.setOnGroupClickListener(new ExpandableListView.OnGroupClickListener() {
+            @Override
+            public boolean onGroupClick(ExpandableListView parent, View v, int groupPosition, long id) {
+                return select(groupPosition, -1);
+                //return selectGroup((int)id);
+            }
+        });
+        mDrawerListView.setOnChildClickListener(new ExpandableListView.OnChildClickListener() {
+            @Override
+            public boolean onChildClick(ExpandableListView parent, View v, int groupPosition, int childPosition, long id) {
+                return select(groupPosition, childPosition);
+                //return selectChild(groupPosition, childPosition);
+            }
+        });
+    }
+
+    public boolean selectGroup(int position){
+        if(position == 1){
+            return false;
+        } else {
+            selectItem(position);
+            return true;
+        }
+    }
+
+    public boolean selectChild(int group, int child){
+        switch(child){
+            default:
+                return false;
+        }
+    }
+
+    public boolean select(int group, int child){
+        boolean ret = true;
+        Fragment fragment = null;
+        selectItem(group);
+        switch(group){
+            case 0:
+                fragment = AddFeedFragment.newInstance(group + 1);
+                break;
+            case 1:
+                if(child != -1)
+                    fragment = FeedFragment.newInstance(child);
+                ret = false; // only if there are feed results
+                break;
+            case 2:
+                // enter Account activity where user can delete account
+                break;
+            case 3:
+                AccessState.instance().setUserLoggedOut(MainActivity.mContext);
+                startActivity(new Intent(MainActivity.mContext, LoginActivity.class));
+                getActivity().finish();
+                break;
+        }
+
+        if(fragment != null) {
+            FragmentManager fragmentManager = getActivity().getSupportFragmentManager();
+            fragmentManager.beginTransaction()
+                    .replace(R.id.container, fragment)
+                    .commit();
+        }
+        return ret;
+    }
+
+    public void createStandard(){
         mDrawerListView.setOnItemClickListener(new AdapterView.OnItemClickListener() {
             @Override
             public void onItemClick(AdapterView<?> parent, View view, int position, long id) {
@@ -108,10 +198,22 @@ public class NavigationDrawerFragment extends Fragment {
                         getString(R.string.title_Add),
                         getString(R.string.title_Feeds),
                         getString(R.string.title_Account),
-                        getString(R.string.title_Logout),
+                        getString(R.string.title_Logout)
                 }));
-        mDrawerListView.setItemChecked(mCurrentSelectedPosition, true);
-        return mDrawerListView;
+    }
+
+    public void prepareListData(){
+        dataHeaders = new ArrayList<>();
+        dataChildren = new HashMap<String, List<String>>();
+
+        dataHeaders.add(getString(R.string.title_Add));
+        dataHeaders.add(getString(R.string.title_Feeds));
+        dataHeaders.add(getString(R.string.title_Account));
+        dataHeaders.add(getString(R.string.title_Logout));
+
+        List<String> feeds = StorageManager.instance().readFeedTitles(MainActivity.mContext);
+
+        dataChildren.put(dataHeaders.get(1), feeds);
     }
 
     public boolean isDrawerOpen() {
@@ -197,26 +299,12 @@ public class NavigationDrawerFragment extends Fragment {
         if (mDrawerListView != null) {
             mDrawerListView.setItemChecked(position, true);
         }
-        if (mDrawerLayout != null) {
+        if (mDrawerLayout != null && position != 1) {
             mDrawerLayout.closeDrawer(mFragmentContainerView);
         }
-        if (mCallbacks != null) {
+        /*if (mCallbacks != null) {
             mCallbacks.onNavigationDrawerItemSelected(position);
-        }
-
-        switch(mCurrentSelectedPosition){
-            case 0:
-                break;
-            case 1:
-                // Expand feeds
-                break;
-            case 2:
-                // enter Account activity where user can delete account
-                break;
-            case 3:
-                AccessState.instance().setUserLoggedOut(MainActivity.mContext);
-                startActivity(new Intent(MainActivity.mContext, LoginActivity.class));
-        }
+        }*/
     }
 
     @Override
@@ -297,4 +385,74 @@ public class NavigationDrawerFragment extends Fragment {
          */
         void onNavigationDrawerItemSelected(int position);
     }
+
+    public static class FeedFragment extends Fragment {
+
+        private static final String ARG_SECTION_NUMBER = "section_number";
+        private static final int SECTION_NUMBER = 1;
+        private static int childSectionNumber;
+        private static String title;
+        private static ListView listView;
+
+        public static FeedFragment newInstance(int sectionNumber) {
+            FeedFragment fragment = new FeedFragment();
+            Bundle args = new Bundle();
+            args.putInt(ARG_SECTION_NUMBER, sectionNumber);
+            fragment.setArguments(args);
+            childSectionNumber = sectionNumber;
+            return fragment;
+        }
+
+        public FeedFragment() {
+        }
+
+        @Override
+        public View onCreateView(LayoutInflater inflater, ViewGroup container,
+                                 Bundle savedInstanceState) {
+            final View rootView = inflater.inflate(R.layout.fragment_main, container, false);
+            listView = (ListView)rootView.findViewById(R.id.section_label);
+
+            listView.setOnItemClickListener(new AdapterView.OnItemClickListener(){
+                @Override
+                public void onItemClick(AdapterView<?> arg0, View arg1, int position, long arg3){
+                    Link link = (Link)listView.getItemAtPosition(position);
+
+                    // TODO: Move to browser view and display webpage from link.url
+
+                    WebView webView = (WebView)arg1.findViewById(R.id.browser_view);
+                    webView.setWebViewClient(new WebViewClient());
+                    webView.loadUrl(link.url);
+                }
+            });
+
+            title = (String)listAdapter.getChild(SECTION_NUMBER, childSectionNumber);
+
+            FeedResults results = StorageManager.instance().readFeedResults(title, MainActivity.mContext);
+
+            List sortedResults = sortLinks(results.userPageRank);
+
+            ArrayAdapter<Link> adapter = new ArrayAdapter<Link>(listView.getContext(), android.R.layout.simple_list_item_1, sortedResults);
+            listView.setAdapter(adapter);
+
+            return rootView;
+        }
+
+        public List<Link> sortLinks(List<Link> results){
+            Collections.sort(results, new Comparator<Link>() {
+                @Override
+                public int compare(Link obj1, Link obj2){
+                    return (obj1.pageRank < obj2.pageRank) ? 1 : -1;
+                }
+            });
+            return results;
+        }
+
+        @Override
+        public void onAttach(Activity activity) {
+            super.onAttach(activity);
+            ((MainActivity) activity).onSectionAttached(
+                    getArguments().getInt(ARG_SECTION_NUMBER));
+        }
+    }
+
 }

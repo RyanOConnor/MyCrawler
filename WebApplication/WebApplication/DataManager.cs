@@ -119,7 +119,7 @@ namespace WebApplication
             }
         }*/
 
-        public bool Edit(HtmlRecord record)
+        /*public bool Edit(HtmlRecord record)
         {
             var result = Database.Instance.htmlCollection.FindAndModify(Query.And(Query.EQ("url", record.domain.AbsoluteUri),
                                                                                   Query.EQ("Version", record.version)),
@@ -132,7 +132,7 @@ namespace WebApplication
                                                                               .Set("serverResponse", record.serverResponse)
                                                                               .Inc("version", 1));
             return result.ModifiedDocument != null;
-        }
+        }*/
 
         public LinkOwner ModifyOwnership(LinkOwner newOwnerResults)
         {

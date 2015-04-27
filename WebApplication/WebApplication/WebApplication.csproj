@@ -62,6 +62,7 @@
     <Compile Include="CrawlerManager.cs" />
     <Compile Include="Database.cs" />
     <Compile Include="DataManager.cs" />
+    <Compile Include="HtmlPage.cs" />
     <Compile Include="HtmlRecord.cs" />
     <Compile Include="JobSchedule.cs" />
     <Compile Include="BSON.cs" />

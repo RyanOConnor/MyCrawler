@@ -143,7 +143,7 @@ namespace WebCrawler
             if (message is RecordMessage)
             {
                 RecordMessage rm = message as RecordMessage;
-                StopTrackingJob(rm.htmlRecord.id);
+                StopTrackingJob(rm.htmlRecord.recordid);
             }
 
             byte[] bson = BSON.Serialize<Message>(message);
@@ -198,7 +198,7 @@ namespace WebCrawler
         {
             lock(jobSet)
             {
-                jobSet.Add(record.id, record);
+                jobSet.Add(record.recordid, record);
             }
         }
 

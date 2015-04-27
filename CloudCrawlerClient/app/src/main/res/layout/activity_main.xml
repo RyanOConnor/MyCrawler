@@ -8,23 +8,6 @@
          space available using match_parent in both dimensions. -->
     <RelativeLayout android:id="@+id/container" android:layout_width="match_parent"
         android:layout_height="match_parent" >
-
-        <Button
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Go"
-            android:id="@+id/goButton"
-            android:layout_gravity="center"
-            android:layout_centerVertical="true"
-            android:layout_centerHorizontal="true" />
-
-        <EditText
-            android:layout_width="fill_parent"
-            android:layout_height="wrap_content"
-            android:id="@+id/urlBar"
-            android:layout_gravity="center_horizontal"
-            android:layout_alignParentEnd="true"
-            android:layout_above="@+id/goButton" />
     </RelativeLayout>
 
     <!-- android:layout_gravity="start" tells DrawerLayout to treat
@@ -34,18 +17,17 @@
          android:layout_gravity="left" instead. -->
     <!-- The drawer is given a fixed width in dp and extends the full height of
          the container. -->
-    <fragment android:id="@+id/navigation_drawer"
+
+<fragment android:id="@+id/navigation_drawer"
         android:layout_width="@dimen/navigation_drawer_width" android:layout_height="match_parent"
         android:layout_gravity="start"
         android:name="com.android.ryan.cloudcrawlerclient.NavigationDrawerFragment"
         tools:layout="@layout/fragment_navigation_drawer" />
-<!--
-    <ListView
-        android:id="@+id/lv_main"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_alignParentLeft="true"
-        android:layout_alignParentTop="true" >
-    </ListView>
+
+<!--    <ExpandableListView
+        android:id="@+id/lvExp"
+        android:layout_height="match_parent"
+        android:layout_width="match_parent"/>
 -->
+
 </android.support.v4.widget.DrawerLayout>

@@ -116,7 +116,7 @@ namespace WebApplication
     public class AddLinkFeed : UserMessage, Serializable
     {
         public string url { get; set; }
-        public List<string> htmlTags { get; set; }
+        public string htmlTags { get; set; }
         public HashSet<string> keywords { get; set; }
 
         public ServerResponse AddLink()
@@ -158,7 +158,7 @@ namespace WebApplication
     public class AddTextUpdate : UserMessage, Serializable
     {
         public string url { get; set; }
-        public List<string> htmlTags { get; set; }
+        public string htmlTags { get; set; }
         public string innerText { get; set; }
 
         public ServerResponse AddLink()

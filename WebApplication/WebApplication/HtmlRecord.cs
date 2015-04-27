@@ -22,7 +22,6 @@ namespace WebApplication
         [BsonDictionaryOptionsAttribute(DictionaryRepresentation.ArrayOfDocuments)]
         public Dictionary<ObjectId, HtmlResults> results { get; set; }
         public HttpStatusCode serverResponse { get; set; }
-        public int version = 0;
 
         public HtmlRecord(Uri domain)
         {
@@ -139,7 +138,7 @@ namespace WebApplication
     {
         ObjectId id { get; set; }
         Uri domain { get; set; }
-        List<string> htmlTags { get; set; }
+        string htmlTags { get; set; }
     }
 
     public interface ILinkFeed : IHtmlResults
@@ -158,9 +157,9 @@ namespace WebApplication
     public abstract class UserResultsBase
     {
         public Uri domain { get; set; }
-        public List<string> htmlTags { get; set; }
+        public string htmlTags { get; set; }
 
-        public UserResultsBase(Uri domain, List<string> tags)
+        public UserResultsBase(Uri domain, string tags)
         {
             this.domain = domain;
             htmlTags = tags;
@@ -168,24 +167,18 @@ namespace WebApplication
     }
 
     [BsonKnownTypes(typeof(LinkFeed), typeof(TextUpdate))]
-    public class HtmlResults : UserResultsBase, ISupportInitialize, Serializable
+    public class HtmlResults : UserResultsBase, Serializable
     {
         public ObjectId id { get; set; }
         [BsonDictionaryOptionsAttribute(DictionaryRepresentation.ArrayOfDocuments)]
         public Dictionary<ObjectId, LinkOwner> linkOwners { get; set; }
 
-        public HtmlResults(string url, List<string> tags)
+        public HtmlResults(string url, string tags)
             :base(new Uri(url), tags)
         {
             id = ObjectId.GenerateNewId();
             linkOwners = new Dictionary<ObjectId, LinkOwner>();
         }
-
-        public void EndInit()
-        { }
-
-        public void BeginInit()
-        { }
 
         public LinkOwner RetrieveResults(ObjectId userid)
         {
@@ -216,7 +209,7 @@ namespace WebApplication
         [BsonDictionaryOptionsAttribute(DictionaryRepresentation.ArrayOfDocuments)]
         private Dictionary<string, List<ObjectId>> keywordOwners { get; set; }
 
-        public LinkFeed(string url, List<string> htmlTags, HashSet<string> keywords)
+        public LinkFeed(string url, string htmlTags, HashSet<string> keywords)
             : base(url, htmlTags)
         {
             this.keywords = keywords;
@@ -286,7 +279,7 @@ namespace WebApplication
         public string previousText { get; set; }
         public string currentText { get; set; }
 
-        public TextUpdate(string url, List<string> htmlTags, string previousText)
+        public TextUpdate(string url, string htmlTags, string previousText)
             :base(url, htmlTags)
         {
             this.previousText = previousText;
@@ -320,7 +313,7 @@ namespace WebApplication
         public ObjectId userid { get; set; }
         public bool changeInContent { get; set; }
 
-        public LinkOwner(Uri domain, List<string> tags, ObjectId user, ObjectId results)
+        public LinkOwner(Uri domain, string tags, ObjectId user, ObjectId results)
             :base(domain, tags)
         {
             resultsid = results;
@@ -333,7 +326,7 @@ namespace WebApplication
         public HashSet<string> keywords { get; set; }
         public Dictionary<string, int> userPageRank { get; set; }
 
-        public FeedOwner(Uri domain, List<string> tags, HashSet<string> keywords, ObjectId user, ObjectId results)
+        public FeedOwner(Uri domain, string tags, HashSet<string> keywords, ObjectId user, ObjectId results)
             : base(domain, tags, user, results)
         {
             this.keywords = keywords;
@@ -345,7 +338,7 @@ namespace WebApplication
     {
         public string previousText { get; set; }
 
-        public TextOwner(Uri domain, List<string> tags, ObjectId user, ObjectId results, string text)
+        public TextOwner(Uri domain, string tags, ObjectId user, ObjectId results, string text)
             : base(domain, tags, user, results)
         {
             previousText = text;

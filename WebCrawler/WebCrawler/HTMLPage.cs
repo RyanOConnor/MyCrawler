@@ -21,7 +21,7 @@ namespace WebCrawler
     public class HtmlRecord : Serializable
     {
         [BsonId]
-        public ObjectId id { get; set; }
+        public ObjectId recordid { get; set; }
         public string url { get; set; }
         public Uri domain { get; set; }
         public DateTime timeStamp { get; set; }
@@ -176,6 +176,46 @@ namespace WebCrawler
             jobStatus = JobStatus.HandlingResponse;
             if (htmlString != string.Empty)
             {
+                MultiValueDictionary<string, ObjectId> links = new MultiValueDictionary<string, ObjectId>();
+                foreach (HtmlResults feed in results.Values)
+                {
+                    HashSet<string> filteredLinks = feed.FilterByTags(htmlString, domain);
+                    foreach (string link in filteredLinks)
+                    {
+                        links.Add(link, feed.resultsid);
+                    }
+                }
+
+                jobStatus = JobStatus.LoadingPages;
+                LoadChildPages(links);
+
+                foreach (ChildPage page in childPages)
+                {
+                    foreach (ObjectId jobId in page.jobIds)
+                    {
+                        results[jobId].AddChildPage(page);
+                    }
+                }
+
+                jobStatus = JobStatus.RankingPages;
+                foreach (HtmlResults feed in results.Values)
+                {
+                    feed.ProcessKeywordScores();
+                }
+
+                jobStatus = JobStatus.Finished;
+                timeStamp = DateTime.UtcNow;
+                WebCrawler.Instance.EnqueueResult(this);
+            }
+        }
+
+        /*protected virtual void HandleResponse(HttpWebResponse response)
+        {
+            string htmlString = DecompressHtml(response);
+
+            jobStatus = JobStatus.HandlingResponse;
+            if (htmlString != string.Empty)
+            {
                 if (results.Any(obj => obj.Value.GetType() == typeof(TextUpdate)))
                 {
                     foreach (TextUpdate textUpdate in results.Values)
@@ -192,7 +232,7 @@ namespace WebCrawler
                         HashSet<string> filteredLinks = feed.FilterByTags(htmlString);
                         foreach (string link in filteredLinks)
                         {
-                            links.Add(link, feed.id);
+                            links.Add(link, feed.recordid);
                         }
                     }
 
@@ -218,7 +258,7 @@ namespace WebCrawler
                 timeStamp = DateTime.UtcNow;
                 WebCrawler.Instance.EnqueueResult(this);
             }
-        }
+        }*/
 
         private void LoadChildPages(MultiValueDictionary<string, ObjectId> links)
         {

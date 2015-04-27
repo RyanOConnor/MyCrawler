@@ -40,10 +40,16 @@ namespace WebApplication
             previousPasswords = new List<Password>();
         }
 
-        public LinkOwner AddLinkFeed(string url, List<string> htmlTags, HashSet<string> keywords)
+        public List<UserLink> getLinkFeed(ObjectId recordid, ObjectId resultsid, HashSet<string> keywords)
+        {
+            IHtmlResultss results = page.getHtmlResults(resultsid);
+            return results.getLinkFeedResults(keywords);
+        }
+
+        public LinkOwner AddLinkFeed(string url, string htmlTags, HashSet<string> keywords)
         {
             if (!links.Any(pair => pair.Value.domain.OriginalString == url &&
-                                   pair.Value.htmlTags.SequenceEqual(htmlTags)))
+                                   pair.Value.htmlTags == htmlTags))
             {
                 ILinkFeed linkFeed = new LinkFeed(url, htmlTags, keywords);
                 FeedOwner feedResults = DataManager.Instance.CreateEntry(linkFeed, id) as FeedOwner;
@@ -56,10 +62,10 @@ namespace WebApplication
             }
         }
 
-        public LinkOwner AddTextUpdate(string url, List<string> htmlTags, string innerText)
+        public LinkOwner AddTextUpdate(string url, string htmlTags, string innerText)
         {
             if (!links.Any(pair => pair.Value.domain.OriginalString == url &&
-                                  pair.Value.htmlTags.SequenceEqual(htmlTags)))
+                                  pair.Value.htmlTags == htmlTags))
             {
                 ITextUpdate textUpdate = new TextUpdate(url, htmlTags, innerText);
                 TextOwner textResults = DataManager.Instance.CreateEntry(textUpdate, id) as TextOwner;
