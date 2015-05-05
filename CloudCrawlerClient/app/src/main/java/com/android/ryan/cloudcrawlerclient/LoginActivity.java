@@ -1,10 +1,13 @@
 package com.android.ryan.cloudcrawlerclient;
 
+import android.accounts.Account;
+import android.accounts.AccountAuthenticatorActivity;
+import android.accounts.AccountManager;
+import android.content.ContentResolver;
 import android.content.Context;
 import android.content.Intent;
 import android.os.AsyncTask;
 import android.os.Bundle;
-import android.support.v7.app.ActionBarActivity;
 import android.util.Log;
 import android.util.Pair;
 import android.view.Menu;
@@ -14,13 +17,19 @@ import android.widget.Button;
 import android.widget.EditText;
 import android.widget.Toast;
 
-import org.apache.http.message.BasicNameValuePair;
 import org.json.JSONObject;
 
 import java.util.List;
 
 
-public class LoginActivity extends ActionBarActivity {
+public class LoginActivity extends AccountAuthenticatorActivity {
+
+    public static final String AUTHORITY = "com.android.ryan.cloudcrawlerclient.provider";
+    public static final String ACCOUNT_TYPE = "com.android.ryan.cloudcrawlerclient.account";
+    public static final String CONTENT_AUTHORITY = "com.android.ryan.cloudcrawlerclient.provider";
+    public static final long SYNC_FREQUENCY = 60*5;
+
+    public static Account mAccount;
 
     EditText enteredUsername, enteredPassword;
     Button btnLogin, btnCreateAccount;
@@ -47,6 +56,8 @@ public class LoginActivity extends ActionBarActivity {
                 //  -------ONLY FOR DEBUGGING PURPOSES------
                 if (enteredUsername.getText().toString().isEmpty()) {
                     setLoggedInState("admin", "");
+                    Intent intent = new Intent(LoginActivity.this, MainActivity.class);
+                    startActivity(intent);
                     //  -------ONLY FOR DEBUGGING PURPOSES------
                 } else {
                     String username = enteredUsername.getText().toString();
@@ -59,18 +70,37 @@ public class LoginActivity extends ActionBarActivity {
         btnCreateAccount.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
+                //  -------ONLY FOR DEBUGGING PURPOSES------
                 if (enteredUsername.getText().toString().isEmpty()) {
                     setLoggedInState("admin", "");
+                    Intent intent = new Intent(LoginActivity.this, MainActivity.class);
+                    startActivity(intent);
+                    //  -------ONLY FOR DEBUGGING PURPOSES------
                 } else {
                     String username = enteredUsername.getText().toString();
                     String password = enteredPassword.getText().toString();
-                    UserDetailsTable userDetails = new UserDetailsTable(username, password);
-                    new AsyncCreateUser().execute(userDetails);
+                    if (username.length() >= 8) {
+                        UserDetailsTable userDetails = new UserDetailsTable(username, password);
+                        new AsyncCreateUser().execute(userDetails);
+                    } else {
+                        Toast.makeText(context, "Username must have 8 or more characters", Toast.LENGTH_LONG).show();
+                    }
                 }
             }
         });
     }
 
+    private void addAccount(String username, String password){
+        AccountManager accountManager = AccountManager.get(this);
+        mAccount = new Account(username, ACCOUNT_TYPE);
+        if(accountManager.addAccountExplicitly(mAccount, password, null)){
+            ContentResolver.setIsSyncable(mAccount, CONTENT_AUTHORITY, 1);
+            ContentResolver.setSyncAutomatically(mAccount, AUTHORITY, true);
+            ContentResolver.addPeriodicSync(mAccount, CONTENT_AUTHORITY, new Bundle(), SYNC_FREQUENCY);
+        } else {
+            ContentResolver.setIsSyncable(mAccount, CONTENT_AUTHORITY, 1);
+        }
+    }
 
     @Override
     public boolean onCreateOptionsMenu(Menu menu) {
@@ -85,11 +115,6 @@ public class LoginActivity extends ActionBarActivity {
         // automatically handle clicks on the Home/Up button, so long
         // as you specify a parent activity in AndroidManifest.xml.
         int id = item.getItemId();
-
-        //noinspection SimplifiableIfStatement
-        if (id == R.id.action_settings) {
-            return true;
-        }
 
         return super.onOptionsItemSelected(item);
     }
@@ -106,18 +131,18 @@ public class LoginActivity extends ActionBarActivity {
         @Override
         protected String doInBackground(String... params) {
             RestAPI api = new RestAPI();
-            String userAuth = "";
+            String userid = "";
             try {
                 JSONObject jsonObj = api.UserAuthorization(params[0], params[1]);
                 JSONParser parser = new JSONParser();
-                userAuth = parser.parseUserAuth(jsonObj);
+                userid = parser.parseUserAuth(jsonObj);
                 username = params[0];
 
             } catch (Exception ex) {
                 Log.d("AsyncLogin", ex.getMessage());
                 ex.printStackTrace();
             }
-            return userAuth;
+            return userid;
         }
 
         @Override
@@ -130,6 +155,7 @@ public class LoginActivity extends ActionBarActivity {
         protected void onPostExecute(String userid) {
             if (!userid.isEmpty()) {
                 if (!userid.matches("[0]+")) {
+                    addAccount(username, userid);
                     setLoggedInState(username, userid);
                 } else {
                     Toast.makeText(context, "Invalid username/password", Toast.LENGTH_SHORT).show();
@@ -164,6 +190,7 @@ public class LoginActivity extends ActionBarActivity {
         protected void onPostExecute(Pair<RestAPI.ServerResponse, String> response) {
             switch (response.first) {
                 case Success:
+                    addAccount(username, response.second);
                     setLoggedInState(username, response.second);
                     break;
                 case UsernameAlreadyExists:
@@ -192,6 +219,7 @@ public class LoginActivity extends ActionBarActivity {
 
             } catch (Exception ex) {
                 ex.printStackTrace();
+                Log.d(this.getClass().toString(), ex.getStackTrace().toString());
             }
             return linkFeeds;
         }

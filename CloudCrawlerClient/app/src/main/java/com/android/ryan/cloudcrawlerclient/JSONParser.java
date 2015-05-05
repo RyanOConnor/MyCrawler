@@ -74,8 +74,8 @@ public class JSONParser {
         return response;
     }
 
-    public Pair<RestAPI.ServerResponse, FeedResults> parseAddFeedResponse(JSONObject obj) {
-        Pair<RestAPI.ServerResponse, FeedResults> response = null;
+    public Pair<RestAPI.ServerResponse, LinkFeed> parseAddFeedResponse(JSONObject obj) {
+        Pair<RestAPI.ServerResponse, LinkFeed> response = null;
         FeedResults results = null;
         try{
             if(!obj.getBoolean("Successful"))
@@ -95,13 +95,14 @@ public class JSONParser {
                             results = new FeedResults(resultsObj.getString("url"), keywords, resultsObj.getString("htmlTags"),
                                     null, resultsObj.getString("recordid"), resultsObj.getString("resultsid"));
                         }
-                        response = new Pair<>(resp, results);
+                        response = new Pair<>(resp, (LinkFeed)results);
                         break;
                     }
                 }
             }
         }catch(Exception ex){
             ex.printStackTrace();
+            Log.d(this.getClass().toString(), ex.getStackTrace().toString());
         }
         return response;
     }
@@ -112,7 +113,6 @@ public class JSONParser {
             if(!obj.getBoolean("Successful"))
                 return linkFeeds;
             else{
-                // TODO: deconstruct JSON string object
                 JSONArray tupleList = obj.getJSONArray("Value");
                 for(int i = 0; i < tupleList.length(); i++){
                     JSONObject tuple = tupleList.getJSONObject(i);
@@ -123,6 +123,7 @@ public class JSONParser {
             }
         }catch(Exception ex){
             ex.printStackTrace();
+            Log.d(this.getClass().toString(), ex.getStackTrace().toString());
         }
         return linkFeeds;
     }
@@ -138,6 +139,7 @@ public class JSONParser {
             results = new FeedResults(obj.getString("url"), keywords, obj.getString("htmlTags"), null, obj.getString("recordid"), obj.getString("resultsid"));
         } catch(Exception ex){
             ex.printStackTrace();
+            Log.d(this.getClass().toString(), ex.getStackTrace().toString());
         }
         return results;
     }
@@ -151,6 +153,7 @@ public class JSONParser {
             }
         }catch(Exception ex){
             ex.printStackTrace();
+            Log.d(this.getClass().toString(), ex.getStackTrace().toString());
         }
         return links;
     }
@@ -164,6 +167,7 @@ public class JSONParser {
             }
         }catch(Exception ex){
             ex.printStackTrace();
+            Log.d(this.getClass().toString(), ex.getStackTrace().toString());
         }
         return links;
     }

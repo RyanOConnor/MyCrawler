@@ -23,12 +23,13 @@ import java.util.Map;
 
 public class RestAPI {
 
-    public static enum ServerResponse {
+    public enum ServerResponse {
         Success, ServerError, InvalidPasswordType, InvalidPassword, UsernameAlreadyExists, LinkAlreadyExists,
         DummyResponse
-    };
+    }
 
-    private final String urlString = "http://10.0.2.2/AndroidWebApi2/Handler.ashx";
+    private final String urlString = "http://67.175.150.75/AndroidWebApi2/Handler.ashx";
+    //private final String urlString = "http://10.0.2.2/AndroidWebApi2/Handler.ashx";
     //private final String urlString = "http://10.0.2.2/TestApi1/Handler.ashx";
 
     private static String convertStreamToUTF8String(InputStream stream) throws IOException {
@@ -153,13 +154,17 @@ public class RestAPI {
         return result;
     }
 
-    public JSONObject ModifyFeed(Object modifiedEntry) throws Exception {
+    public JSONObject ModifyFeed(String userid,String recordid,String resultsid,String htmlTags,Object keywords) throws Exception {
         JSONObject result = null;
         JSONObject o = new JSONObject();
         JSONObject p = new JSONObject();
         o.put("interface","RestAPI");
         o.put("method", "ModifyFeed");
-        p.put("modifiedEntry",mapObject(modifiedEntry));
+        p.put("userid",mapObject(userid));
+        p.put("recordid",mapObject(recordid));
+        p.put("resultsid",mapObject(resultsid));
+        p.put("htmlTags",mapObject(htmlTags));
+        p.put("keywords",mapObject(keywords));
         o.put("parameters", p);
         String s = o.toString();
         String r = load(s);
@@ -167,13 +172,14 @@ public class RestAPI {
         return result;
     }
 
-    public JSONObject RemoveItem(String itemid) throws Exception {
+    public JSONObject RemoveFeed(String userid,String resultsid) throws Exception {
         JSONObject result = null;
         JSONObject o = new JSONObject();
         JSONObject p = new JSONObject();
         o.put("interface","RestAPI");
-        o.put("method", "RemoveItem");
-        p.put("itemid",mapObject(itemid));
+        o.put("method", "RemoveFeed");
+        p.put("userid",mapObject(userid));
+        p.put("resultsid",mapObject(resultsid));
         o.put("parameters", p);
         String s = o.toString();
         String r = load(s);

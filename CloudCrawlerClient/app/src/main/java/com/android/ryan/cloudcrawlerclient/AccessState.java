@@ -3,6 +3,7 @@ package com.android.ryan.cloudcrawlerclient;
 import android.content.Context;
 import android.content.SharedPreferences;
 import android.preference.PreferenceManager;
+import android.util.Log;
 
 /**
  * Created by Ryan on 4/17/2015.
@@ -15,21 +16,16 @@ public class AccessState {
         if(_instance == null)
             _instance = new AccessState();
         return _instance;
-    };
+    }
 
     private AccessState(){
-
     }
 
     SharedPreferences prefs;
     SharedPreferences.Editor editor;
 
     public boolean userIsLoggedIn(Context context){
-        try {
-            prefs = PreferenceManager.getDefaultSharedPreferences(context);
-        } catch (Exception ex){
-            ex.printStackTrace();
-        }
+        prefs = context.getSharedPreferences("MyPref", 0);
         return prefs.getBoolean("logged_in", false);
     }
 
@@ -49,12 +45,13 @@ public class AccessState {
         editor.putString("userid", null);
         editor.putBoolean("logged_in", false);
         editor.commit();
-        StorageManager.instance().wipeStorage(context);
+        SyncService.shutDownSync();
     }
 
     public String getUserName(Context context){
         prefs = context.getSharedPreferences("MyPref", 0);
-        return prefs.getString("userid", null);
+        String username = prefs.getString("username", null);
+        return username;
     }
 
     public String getUserID(Context context){

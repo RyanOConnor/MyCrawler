@@ -1,7 +1,9 @@
 package com.android.ryan.cloudcrawlerclient;
 
-import android.app.FragmentTransaction;
+import android.app.AlertDialog;
+import android.content.DialogInterface;
 import android.content.Intent;
+import android.os.AsyncTask;
 import android.support.v4.app.FragmentManager;
 import android.support.v7.app.ActionBarActivity;
 import android.app.Activity;
@@ -14,19 +16,20 @@ import android.content.SharedPreferences;
 import android.content.res.Configuration;
 import android.os.Bundle;
 import android.preference.PreferenceManager;
+import android.util.Log;
 import android.view.LayoutInflater;
 import android.view.Menu;
 import android.view.MenuInflater;
 import android.view.MenuItem;
 import android.view.View;
 import android.view.ViewGroup;
-import android.webkit.WebView;
-import android.webkit.WebViewClient;
 import android.widget.AdapterView;
 import android.widget.ArrayAdapter;
 import android.widget.ExpandableListView;
 import android.widget.ListView;
 import android.widget.Toast;
+
+import org.json.JSONObject;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -41,32 +44,20 @@ import java.util.List;
  */
 public class NavigationDrawerFragment extends Fragment {
 
-    /**
-     * Remember the position of the selected item.
-     */
-    private static final String STATE_SELECTED_POSITION = "selected_navigation_drawer_position";
-
-    /**
-     * Per the design guidelines, you should show the drawer on launch until the user manually
-     * expands it. This shared preference tracks this.
-     */
+    private static final String STATE_SELECTED_GROUP = "selected_navigation_drawer_group";
+    private static final String STATE_SELECTED_ITEM = "selected_navigation_drawer_item";
     private static final String PREF_USER_LEARNED_DRAWER = "navigation_drawer_learned";
 
-    /**
-     * A pointer to the current callbacks instance (the Activity).
-     */
     private NavigationDrawerCallbacks mCallbacks;
 
-    /**
-     * Helper component that ties the action bar to the navigation drawer.
-     */
     private ActionBarDrawerToggle mDrawerToggle;
 
     private DrawerLayout mDrawerLayout;
     private ExpandableListView mDrawerListView;
     private View mFragmentContainerView;
 
-    private int mCurrentSelectedPosition = 0;
+    private int mCurrentSelectedGroup = 0;
+    private int mCurrentSelectedItem = 0;
     private boolean mFromSavedInstanceState;
     private boolean mUserLearnedDrawer;
 
@@ -87,12 +78,11 @@ public class NavigationDrawerFragment extends Fragment {
         mUserLearnedDrawer = sp.getBoolean(PREF_USER_LEARNED_DRAWER, false);
 
         if (savedInstanceState != null) {
-            mCurrentSelectedPosition = savedInstanceState.getInt(STATE_SELECTED_POSITION);
+            mCurrentSelectedGroup = savedInstanceState.getInt(STATE_SELECTED_GROUP);
+            mCurrentSelectedItem = savedInstanceState.getInt(STATE_SELECTED_ITEM);
             mFromSavedInstanceState = true;
         }
-
-        // Select either the default item (0) or the last selected item.
-        selectItem(mCurrentSelectedPosition);
+        select(mCurrentSelectedGroup, mCurrentSelectedItem);
     }
 
     @Override
@@ -109,9 +99,7 @@ public class NavigationDrawerFragment extends Fragment {
         mDrawerListView = (ExpandableListView) inflater.inflate(
                 R.layout.fragment_navigation_drawer, container, false);
 
-        //createExpandable();
-        //createStandard();
-        mDrawerListView.setItemChecked(mCurrentSelectedPosition, true);
+        mDrawerListView.setItemChecked(mCurrentSelectedGroup, true);
         return mDrawerListView;
     }
 
@@ -123,49 +111,137 @@ public class NavigationDrawerFragment extends Fragment {
             @Override
             public boolean onGroupClick(ExpandableListView parent, View v, int groupPosition, long id) {
                 return select(groupPosition, -1);
-                //return selectGroup((int)id);
             }
         });
         mDrawerListView.setOnChildClickListener(new ExpandableListView.OnChildClickListener() {
             @Override
             public boolean onChildClick(ExpandableListView parent, View v, int groupPosition, int childPosition, long id) {
                 return select(groupPosition, childPosition);
-                //return selectChild(groupPosition, childPosition);
+            }
+        });
+        mDrawerListView.setOnItemLongClickListener(new ExpandableListView.OnItemLongClickListener() {
+            @Override
+            public boolean onItemLongClick(AdapterView<?> parent, View v, int groupPosition, long id) {
+                if (ExpandableListView.getPackedPositionType(id) == ExpandableListView.PACKED_POSITION_TYPE_CHILD) {
+                    int groupPos = ExpandableListView.getPackedPositionGroup(id);
+                    int childPos = ExpandableListView.getPackedPositionChild(id);
+                    if (groupPos == 1) {
+                        displayModifyFeedDialog(childPos);
+                    }
+                    return true;
+                } else {
+                    return false;
+                }
             }
         });
     }
 
-    public boolean selectGroup(int position){
-        if(position == 1){
-            return false;
-        } else {
-            selectItem(position);
-            return true;
-        }
+    public void displayModifyFeedDialog(int childPos){
+        final String feedTitle = (String) listAdapter.getChild(1, childPos);
+        final FeedResults results = StorageManager.instance().readFeedResults(feedTitle, MainActivity.mContext);
+
+        AlertDialog.Builder dialogBuilder = new AlertDialog.Builder(MainActivity.mContext);
+        dialogBuilder.setCancelable(false);
+        dialogBuilder.setTitle(feedTitle);
+        dialogBuilder.setNegativeButton("Modify", new DialogInterface.OnClickListener() {
+            @Override
+            public void onClick(DialogInterface dialogInterface, int which) {
+                Intent intent = new Intent(getActivity(), TargetContentActivity.class);
+                intent.putExtra("modifyingFeed", true);
+                intent.putExtra("feedResults", results);
+                startActivity(intent);
+            }
+        });
+        dialogBuilder.setPositiveButton("Remove", new DialogInterface.OnClickListener(){
+            @Override
+            public void onClick(DialogInterface dialogInterface, int which) {
+                AlertDialog.Builder builder = new AlertDialog.Builder(MainActivity.mContext);
+                builder.setCancelable(false);
+                builder.setTitle("Remove " + feedTitle + "?");
+                builder.setNegativeButton("Yes", new DialogInterface.OnClickListener() {
+                    @Override
+                    public void onClick(DialogInterface dialogInterface, int which) {
+                        new AsyncTask<String, Void, RestAPI.ServerResponse>() {
+                            @Override
+                            protected RestAPI.ServerResponse doInBackground(String... params) {
+                                String userid = params[0];
+                                String resultsid = params[1];
+                                RestAPI.ServerResponse response = RestAPI.ServerResponse.ServerError;
+                                RestAPI api = new RestAPI();
+                                try {
+                                    JSONObject obj = api.RemoveFeed(userid, resultsid);
+                                    JSONParser parser = new JSONParser();
+                                    response = parser.parseServerResponse(obj);
+                                } catch (Exception ex) {
+                                    ex.printStackTrace();
+                                    Log.d(this.getClass().toString(), ex.getStackTrace().toString());
+                                }
+                                return response;
+                            }
+                            @Override
+                            protected void onPostExecute(RestAPI.ServerResponse response) {
+                                switch (response) {
+                                    case Success:
+                                        StorageManager.instance().wipeUserLinkFeed(MainActivity.mContext, results.getUserId(),
+                                                                                    results.getRecordId(), results.getResultsId());
+                                        startActivity(new Intent(MainActivity.mContext, MainActivity.class));
+                                        break;
+                                    case ServerError:
+                                        Toast.makeText(MainActivity.mContext, "Server Error - Try again", Toast.LENGTH_SHORT);
+                                        break;
+                                }
+                            }
+                        }.execute(AccessState.instance().getUserID(MainActivity.mContext), results.getResultsId());
+                    }
+                });
+                builder.setPositiveButton("No", new DialogInterface.OnClickListener() {
+                    @Override
+                    public void onClick(DialogInterface dialog, int which) {
+                    }
+                });
+                builder.create().show();
+            }
+        });
+        dialogBuilder.create().show();
     }
 
-    public boolean selectChild(int group, int child){
-        switch(child){
-            default:
-                return false;
-        }
+    public void prepareListData(){
+        dataHeaders = new ArrayList<>();
+        dataChildren = new HashMap<String, List<String>>();
+
+        dataHeaders.add(getString(R.string.title_Add));
+        dataHeaders.add(getString(R.string.title_Feeds));
+        dataHeaders.add(getString(R.string.title_Account));
+        dataHeaders.add(getString(R.string.title_Logout));
+
+        List<String> feeds = StorageManager.instance().readFeedTitles(MainActivity.mContext);
+        List<String> account = new ArrayList<String>();
+        account.add("Delete Account");
+        dataChildren.put(dataHeaders.get(1), feeds);
+        dataChildren.put(dataHeaders.get(2), account);
     }
 
     public boolean select(int group, int child){
         boolean ret = true;
         Fragment fragment = null;
-        selectItem(group);
-        switch(group){
+        mCurrentSelectedGroup = group;
+        if (mDrawerListView != null) {
+            mDrawerListView.setItemChecked(group, true);
+        }
+        if ( mDrawerLayout != null && ( group != 1 && group != 2 ) ) {
+            mDrawerLayout.closeDrawer(mFragmentContainerView);
+        }
+        switch(group) {
             case 0:
                 fragment = AddFeedFragment.newInstance(group + 1);
                 break;
             case 1:
-                if(child != -1)
-                    fragment = FeedFragment.newInstance(child);
-                ret = false; // only if there are feed results
+                fragment = getFeedFragment(child);
+                ret = false;
                 break;
             case 2:
-                // enter Account activity where user can delete account
+                fragment = getAccountFragment(child);
+                ret = false;
                 break;
             case 3:
                 AccessState.instance().setUserLoggedOut(MainActivity.mContext);
@@ -183,49 +259,72 @@ public class NavigationDrawerFragment extends Fragment {
         return ret;
     }
 
-    public void createStandard(){
-        mDrawerListView.setOnItemClickListener(new AdapterView.OnItemClickListener() {
-            @Override
-            public void onItemClick(AdapterView<?> parent, View view, int position, long id) {
-                selectItem(position);
-            }
-        });
-        mDrawerListView.setAdapter(new ArrayAdapter<String>(
-                getActionBar().getThemedContext(),
-                android.R.layout.simple_list_item_activated_1,
-                android.R.id.text1,
-                new String[]{
-                        getString(R.string.title_Add),
-                        getString(R.string.title_Feeds),
-                        getString(R.string.title_Account),
-                        getString(R.string.title_Logout)
-                }));
+    public Fragment getFeedFragment(int child){
+        if(child != -1)
+            return FeedFragment.newInstance(child);
+        else
+            return null;
     }
 
-    public void prepareListData(){
-        dataHeaders = new ArrayList<>();
-        dataChildren = new HashMap<String, List<String>>();
+    public Fragment getAccountFragment(int child){
+        if(child == 0){
+            AlertDialog.Builder dialogBuilder = new AlertDialog.Builder(MainActivity.mContext);
+            dialogBuilder.setCancelable(false);
+            dialogBuilder.setTitle("Are you sure?");
+            dialogBuilder.setNegativeButton("Yes", new DialogInterface.OnClickListener() {
+                @Override
+                public void onClick(DialogInterface dialogInterface, int which) {
+                    new AsyncTask<String, Void, RestAPI.ServerResponse>() {
+                        @Override
+                        protected RestAPI.ServerResponse doInBackground(String... params) {
+                            String userid = params[0];
+                            RestAPI.ServerResponse response = RestAPI.ServerResponse.ServerError;
+                            RestAPI api = new RestAPI();
+                            try {
+                                JSONObject obj = api.DeleteUser(userid);
+                                JSONParser parser = new JSONParser();
+                                response = parser.parseServerResponse(obj);
 
-        dataHeaders.add(getString(R.string.title_Add));
-        dataHeaders.add(getString(R.string.title_Feeds));
-        dataHeaders.add(getString(R.string.title_Account));
-        dataHeaders.add(getString(R.string.title_Logout));
+                            } catch (Exception ex) {
+                                ex.printStackTrace();
+                                Log.d(this.getClass().toString(), ex.getStackTrace().toString());
+                            }
+                            return response;
+                        }
 
-        List<String> feeds = StorageManager.instance().readFeedTitles(MainActivity.mContext);
+                        @Override
+                        protected void onPostExecute(RestAPI.ServerResponse response) {
+                            switch (response) {
+                                case Success:
+                                    StorageManager.instance().wipeAllUserData(MainActivity.mContext,
+                                            AccessState.instance().getUserID(MainActivity.mContext));
+                                    AccessState.instance().setUserLoggedOut(MainActivity.mContext);
+                                    startActivity(new Intent(MainActivity.mContext, LoginActivity.class));
+                                    break;
+                                case ServerError:
+                                    Toast.makeText(MainActivity.mContext, "Server Error - Try again", Toast.LENGTH_SHORT);
+                                    break;
+                            }
+                        }
+                    }.execute((AccessState.instance().getUserID(MainActivity.mContext)));
+                }
+            });
+            dialogBuilder.setPositiveButton("No", new DialogInterface.OnClickListener() {
+                @Override
+                public void onClick(DialogInterface dialogInterface, int which) {
+                }
+            });
+            AlertDialog dialog = dialogBuilder.create();
+            dialog.show();
+        }
 
-        dataChildren.put(dataHeaders.get(1), feeds);
+        return null; // Change to AccountFragment when necessary
     }
 
     public boolean isDrawerOpen() {
         return mDrawerLayout != null && mDrawerLayout.isDrawerOpen(mFragmentContainerView);
     }
 
-    /**
-     * Users of this fragment must call this method to set up the navigation drawer interactions.
-     *
-     * @param fragmentId   The android:id of this fragment in its activity's layout.
-     * @param drawerLayout The DrawerLayout containing this fragment's UI.
-     */
     public void setUp(int fragmentId, DrawerLayout drawerLayout) {
         mFragmentContainerView = getActivity().findViewById(fragmentId);
         mDrawerLayout = drawerLayout;
@@ -253,7 +352,6 @@ public class NavigationDrawerFragment extends Fragment {
                 if (!isAdded()) {
                     return;
                 }
-
                 getActivity().supportInvalidateOptionsMenu(); // calls onPrepareOptionsMenu()
             }
 
@@ -263,7 +361,6 @@ public class NavigationDrawerFragment extends Fragment {
                 if (!isAdded()) {
                     return;
                 }
-
                 if (!mUserLearnedDrawer) {
                     // The user manually opened the drawer; store this flag to prevent auto-showing
                     // the navigation drawer automatically in the future.
@@ -272,7 +369,6 @@ public class NavigationDrawerFragment extends Fragment {
                             .getDefaultSharedPreferences(getActivity());
                     sp.edit().putBoolean(PREF_USER_LEARNED_DRAWER, true).apply();
                 }
-
                 getActivity().supportInvalidateOptionsMenu(); // calls onPrepareOptionsMenu()
             }
         };
@@ -290,21 +386,7 @@ public class NavigationDrawerFragment extends Fragment {
                 mDrawerToggle.syncState();
             }
         });
-
         mDrawerLayout.setDrawerListener(mDrawerToggle);
-    }
-
-    private void selectItem(int position) {
-        mCurrentSelectedPosition = position;
-        if (mDrawerListView != null) {
-            mDrawerListView.setItemChecked(position, true);
-        }
-        if (mDrawerLayout != null && position != 1) {
-            mDrawerLayout.closeDrawer(mFragmentContainerView);
-        }
-        /*if (mCallbacks != null) {
-            mCallbacks.onNavigationDrawerItemSelected(position);
-        }*/
     }
 
     @Override
@@ -326,7 +408,7 @@ public class NavigationDrawerFragment extends Fragment {
     @Override
     public void onSaveInstanceState(Bundle outState) {
         super.onSaveInstanceState(outState);
-        outState.putInt(STATE_SELECTED_POSITION, mCurrentSelectedPosition);
+        outState.putInt(STATE_SELECTED_GROUP, mCurrentSelectedGroup);
     }
 
     @Override
@@ -340,6 +422,9 @@ public class NavigationDrawerFragment extends Fragment {
     public void onCreateOptionsMenu(Menu menu, MenuInflater inflater) {
         // If the drawer is open, show the global app actions in the action bar. See also
         // showGlobalContextActionBar, which controls the top-left area of the action bar.
+
+        //MenuItem item = menu.add(Menu.NONE, 0, 0, AccessState.instance().getUserName(getActivity().getApplicationContext()));
+        //item.setShowAsAction(MenuItem.SHOW_AS_ACTION_WITH_TEXT);
         if (mDrawerLayout != null && isDrawerOpen()) {
             inflater.inflate(R.menu.global, menu);
             showGlobalContextActionBar();
@@ -348,16 +433,18 @@ public class NavigationDrawerFragment extends Fragment {
     }
 
     @Override
+    public void onPrepareOptionsMenu(Menu menu){
+        if(mDrawerLayout != null && isDrawerOpen()){
+            menu.clear();
+        }
+    }
+
+    @Override
     public boolean onOptionsItemSelected(MenuItem item) {
         if (mDrawerToggle.onOptionsItemSelected(item)) {
             return true;
         }
-
-        if (item.getItemId() == R.id.action_example) {
-            Toast.makeText(getActivity(), "Example action.", Toast.LENGTH_SHORT).show();
-            return true;
-        }
-
+        select(2, 0);   // Jump to "Accounts"
         return super.onOptionsItemSelected(item);
     }
 
@@ -367,12 +454,14 @@ public class NavigationDrawerFragment extends Fragment {
      */
     private void showGlobalContextActionBar() {
         ActionBar actionBar = getActionBar();
-        actionBar.setDisplayShowTitleEnabled(true);
+        //actionBar.setDisplayShowTitleEnabled(true);
         actionBar.setNavigationMode(ActionBar.NAVIGATION_MODE_STANDARD);
-        actionBar.setTitle(R.string.app_name);
+        //actionBar.setTitle(R.string.app_name);
     }
 
     private ActionBar getActionBar() {
+        ActionBar actionBar = ((ActionBarActivity) getActivity()).getSupportActionBar();
+        actionBar.setTitle(getActivity().getTitle());
         return ((ActionBarActivity) getActivity()).getSupportActionBar();
     }
 
@@ -389,7 +478,7 @@ public class NavigationDrawerFragment extends Fragment {
     public static class FeedFragment extends Fragment {
 
         private static final String ARG_SECTION_NUMBER = "section_number";
-        private static final int SECTION_NUMBER = 1;
+        private static final int GROUP_NUMBER = 1;
         private static int childSectionNumber;
         private static String title;
         private static ListView listView;
@@ -407,41 +496,34 @@ public class NavigationDrawerFragment extends Fragment {
         }
 
         @Override
-        public View onCreateView(LayoutInflater inflater, ViewGroup container,
-                                 Bundle savedInstanceState) {
+        public View onCreateView(LayoutInflater inflater, ViewGroup container, Bundle savedInstanceState) {
             final View rootView = inflater.inflate(R.layout.fragment_main, container, false);
-            listView = (ListView)rootView.findViewById(R.id.section_label);
+            listView = (ListView) rootView.findViewById(R.id.feed_list);
 
-            listView.setOnItemClickListener(new AdapterView.OnItemClickListener(){
+            listView.setOnItemClickListener(new AdapterView.OnItemClickListener() {
                 @Override
-                public void onItemClick(AdapterView<?> arg0, View arg1, int position, long arg3){
+                public void onItemClick(AdapterView<?> arg0, View arg1, int position, long arg3) {
                     Link link = (Link)listView.getItemAtPosition(position);
-
-                    // TODO: Move to browser view and display webpage from link.url
-
-                    WebView webView = (WebView)arg1.findViewById(R.id.browser_view);
-                    webView.setWebViewClient(new WebViewClient());
-                    webView.loadUrl(link.url);
+                    Intent intent = new Intent(getActivity(), BrowserActivity.class);
+                    intent.putExtra("url", link.url);
+                    startActivity(intent);
                 }
             });
 
-            title = (String)listAdapter.getChild(SECTION_NUMBER, childSectionNumber);
-
+            title = (String)listAdapter.getChild(GROUP_NUMBER, childSectionNumber);
             FeedResults results = StorageManager.instance().readFeedResults(title, MainActivity.mContext);
-
             List sortedResults = sortLinks(results.userPageRank);
-
-            ArrayAdapter<Link> adapter = new ArrayAdapter<Link>(listView.getContext(), android.R.layout.simple_list_item_1, sortedResults);
+            ArrayAdapter<Link> adapter = new ArrayAdapter<>(listView.getContext(), R.layout.feed_item, sortedResults);
             listView.setAdapter(adapter);
 
             return rootView;
         }
 
-        public List<Link> sortLinks(List<Link> results){
+        public List<Link> sortLinks(List<Link> results) {
             Collections.sort(results, new Comparator<Link>() {
                 @Override
-                public int compare(Link obj1, Link obj2){
-                    return (obj1.pageRank < obj2.pageRank) ? 1 : -1;
+                public int compare(Link obj1, Link obj2) {
+                    return (obj1.pageRank < obj2.pageRank) ? -1 : 1;
                 }
             });
             return results;

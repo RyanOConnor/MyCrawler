@@ -1,8 +1,10 @@
 package com.android.ryan.cloudcrawlerclient;
 
+import android.accounts.Account;
 import android.app.Activity;
 import android.content.Intent;
 import android.net.Uri;
+import android.os.Environment;
 import android.support.v7.app.ActionBarActivity;
 import android.support.v7.app.ActionBar;
 import android.support.v4.app.Fragment;
@@ -16,9 +18,13 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.support.v4.widget.DrawerLayout;
 
+import java.io.File;
+
 
 public class MainActivity extends ActionBarActivity
         implements NavigationDrawerFragment.NavigationDrawerCallbacks, AddFeedFragment.OnFragmentInteractionListener {
+
+    public static String DIRECTORY_PATH;
 
     public static Context mContext;
     private NavigationDrawerFragment mNavigationDrawerFragment;
@@ -28,6 +34,7 @@ public class MainActivity extends ActionBarActivity
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         mContext = this;
+        DIRECTORY_PATH =  mContext.getFilesDir() + File.separator + "feeds" + File.separator;
         setContentView(R.layout.activity_main);
 
         mNavigationDrawerFragment = (NavigationDrawerFragment)
@@ -38,14 +45,19 @@ public class MainActivity extends ActionBarActivity
         mNavigationDrawerFragment.setUp(
                 R.id.navigation_drawer,
                 (DrawerLayout) findViewById(R.id.drawer_layout));
+
+        if(Environment.getExternalStorageState().equals(Environment.MEDIA_MOUNTED)){
+            File directory = new File(mContext.getFilesDir() + File.separator + "feeds");
+            directory.mkdirs();
+        }
     }
 
     @Override
     public void onResume(){
         super.onResume();
-        /*mNavigationDrawerFragment.setUp(
+        mNavigationDrawerFragment.setUp(
                 R.id.navigation_drawer,
-                (DrawerLayout) findViewById(R.id.drawer_layout));*/
+                (DrawerLayout) findViewById(R.id.drawer_layout));
     }
 
     @Override
@@ -101,8 +113,8 @@ public class MainActivity extends ActionBarActivity
     public void restoreActionBar() {
         ActionBar actionBar = getSupportActionBar();
         actionBar.setNavigationMode(ActionBar.NAVIGATION_MODE_STANDARD);
-        actionBar.setDisplayShowTitleEnabled(true);
-        actionBar.setTitle(mTitle);
+        //actionBar.setDisplayShowTitleEnabled(true);
+        //actionBar.setTitle(mTitle);
     }
 
     @Override
@@ -124,11 +136,6 @@ public class MainActivity extends ActionBarActivity
         // automatically handle clicks on the Home/Up button, so long
         // as you specify a parent activity in AndroidManifest.xml.
         int id = item.getItemId();
-
-        //noinspection SimplifiableIfStatement
-        if (id == R.id.action_settings) {
-            return true;
-        }
 
         return super.onOptionsItemSelected(item);
     }
