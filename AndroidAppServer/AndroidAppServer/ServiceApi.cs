@@ -18,25 +18,25 @@ namespace AndroidAppServer
 
     public interface IServiceApi
     {
-        string UserAuthorization(string username, string password);
+        ObjectId UserAuthorization(string username, string password);
 
-        ServerResponse CreateNewAccount(string username, string password);
-        KeyValuePair<ServerResponse, LinkOwner> AddLinkFeed(string url, List<string> htmlTags, HashSet<string> keywords);
-        KeyValuePair<ServerResponse, LinkOwner> AddTextUpdate(string url, List<string> htmlTags, string innerText);
-        ServerResponse ModifyFeed( LinkOwner modifiedEntry);
-        ServerResponse ModifyUpdate(LinkOwner modifiedEntry);
-        ServerResponse RemoveItem(ObjectId itemid);
+        Tuple<ServerResponse, ObjectId> CreateNewAccount(string username, string password);
+        Tuple<ServerResponse, LinkFeedParams> AddLinkFeed(string userid, string url, string htmlTags, 
+                                                          HashSet<string> keywords);
+        Tuple<ServerResponse, LinkFeedParams> ModifyFeed(string userid, string recordid, string resultsid,
+                                                         string htmlTags, HashSet<string> keywords);
+        ServerResponse RemoveFeed(string userid, string resultsid);
         ServerResponse ChangePassword(string newPassword);
-        ServerResponse DeleteUser(ObjectId userid);
+        ServerResponse DeleteUser(string userid);
 
-        List<LinkOwner> RetrieveUpdates(List<ObjectId> updates);
+        List<Tuple<LinkFeedParams, List<UserLink>>> RetrieveUpdates(string userid);
     }
 
     public class ServiceApi : IServiceApi
     {
         private void WriteLog(Exception ex)
         {
-            using (StreamWriter file = new StreamWriter("MyAppLog.txt", true))
+            using (StreamWriter file = new StreamWriter("ExceptionLog.txt", true))
             {
                 file.Write(ex.ToString());
             }
@@ -44,26 +44,20 @@ namespace AndroidAppServer
 
         private void WriteString(string s)
         {
-            using (StreamWriter file = new StreamWriter("RestApiTest.txt", true))
+            using (StreamWriter file = new StreamWriter("TestLog.txt", true))
             {
                 file.Write(s);
             }
         }
 
-        public string UserAuthorization(string username, string password)
+        public ObjectId UserAuthorization(string username, string password)
         {
-            if (UserManager.Instance.ValidateLoginAttempt(username, Encoding.UTF8.GetBytes(password)))
-            {
-                return Authorize.GetSessionToken();
-            }
-            else
-            {
-                return string.Empty;
-            }
+            return UserManager.Instance.ValidateLoginAttempt(username, Encoding.UTF8.GetBytes(password));
         }
 
-        public ServerResponse CreateNewAccount(string username, string password)
+        public Tuple<ServerResponse, ObjectId> CreateNewAccount(string username, string password)
         {
+            Tuple<ServerResponse, ObjectId> response;
             try
             {
                 if (Authorize.PassesGuidelines(password))
@@ -76,110 +70,98 @@ namespace AndroidAppServer
                     try
                     {
                         UserManager.Instance.SaveUser(newUser);
-                        return ServerResponse.Success;
+                        response = new Tuple<ServerResponse, ObjectId>(ServerResponse.Success, newUser.id);
                     }
                     catch (MongoWriteConcernException ex)
                     {
                         WriteLog(ex);
-                        return ServerResponse.UsernameAlreadyExists;
+                        response = new Tuple<ServerResponse, ObjectId>(ServerResponse.UsernameAlreadyExists, ObjectId.Empty);
                     }
                 }
                 else
                 {
-                    return ServerResponse.InvalidPasswordType;
+                    response = new Tuple<ServerResponse, ObjectId>(ServerResponse.UsernameAlreadyExists, ObjectId.Empty);
                 }
             }
             catch (Exception ex)
             {
                 WriteLog(ex);
-                return ServerResponse.ServerError;
+                response = new Tuple<ServerResponse, ObjectId>(ServerResponse.ServerError, ObjectId.Empty);
             }
+            return response;
         }
 
-        public KeyValuePair<ServerResponse, LinkOwner> AddLinkFeed(ObjectId userid, string url, List<string> htmlTags, HashSet<string> keywords)
+        public Tuple<ServerResponse, LinkFeedParams> AddLinkFeed(string userid, string url, 
+                                                                 string htmlTags, HashSet<string> keywords)
         {
+            Tuple<ServerResponse, LinkFeedParams> response = null;
+            ObjectId userObjId = ObjectId.Parse(userid);
             try
             {
-                User user = UserManager.Instance.FindUserByID(userid);
+                User user = UserManager.Instance.FindUserByID(userObjId);
                 try
                 {
-                    LinkOwner results = user.AddLinkFeed(url, htmlTags, keywords);
+                    LinkFeedParams results = user.AddLinkFeed(url, htmlTags, keywords);
                     UserManager.Instance.SaveUser(user);
-                    return new KeyValuePair<ServerResponse, LinkOwner>(ServerResponse.Success, results);
-                }
-                catch(Exception ex)
-                {
-                    Console.WriteLine(ex.ToString());
-                    return new KeyValuePair<ServerResponse, LinkOwner>(ServerResponse.LinkAlreadyExists, null);
-                }
-            }
-            catch(Exception ex)
-            {
-                Console.WriteLine(ex.ToString());
-                return new KeyValuePair<ServerResponse, LinkOwner>(ServerResponse.ServerError, null);
-            }
-        }
-
-        public KeyValuePair<ServerResponse, LinkOwner> AddTextUpdate(ObjectId userid, string url, List<string> htmlTags, string innerText)
-        {
-            try
-            {
-                using (System.IO.StreamWriter file = new System.IO.StreamWriter("RestApiTest.txt", true))
-                {
-                    file.Write("[{0}] AddTextUpdate({1}, {2}, {3})", DateTime.Now, userid, url, htmlTags.ToJson(), innerText);
-                }
-            }
-            catch (Exception) { }
-
-            try
-            {
-                User user = UserManager.Instance.FindUserByID(userid);
-                try
-                {
-                    LinkOwner results = user.AddTextUpdate(url, htmlTags, innerText);
-                    UserManager.Instance.SaveUser(user);
-                    return new KeyValuePair<ServerResponse, LinkOwner>(ServerResponse.Success, results);
+                    response = new Tuple<ServerResponse, LinkFeedParams>(ServerResponse.Success, results);
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine(ex.ToString());
-                    return new KeyValuePair<ServerResponse, LinkOwner>(ServerResponse.LinkAlreadyExists, null);
+                    WriteLog(ex);
+                    response = new Tuple<ServerResponse, LinkFeedParams>(ServerResponse.LinkAlreadyExists, null);
                 }
             }
             catch (Exception ex)
             {
-                Console.WriteLine(ex.ToString());
-                return new KeyValuePair<ServerResponse, LinkOwner>(ServerResponse.ServerError, null);
+                WriteLog(ex);
+                response = new Tuple<ServerResponse, LinkFeedParams>(ServerResponse.ServerError, null);
             }
+            return response;
         }
 
-        public ServerResponse ModifyFeed(LinkOwner modifiedEntry)
+        public Tuple<ServerResponse, LinkFeedParams> ModifyFeed(string userid, string recordid, string resultsid, 
+                                                                string htmlTags, HashSet<string> keywords)
         {
-            using (System.IO.StreamWriter file = new System.IO.StreamWriter("RestApiTest.txt", true))
+            Tuple<ServerResponse, LinkFeedParams> response = null;
+            ObjectId userObjId = ObjectId.Parse(userid);
+            try
             {
-                file.Write("[{0}] ModifyLinkFeed({1})", DateTime.Now, modifiedEntry.ToJson());
+                User user = UserManager.Instance.FindUserByID(userObjId);
+                ObjectId recordObjId = ObjectId.Parse(recordid);
+                ObjectId resultsObjId = ObjectId.Parse(resultsid);
+                LinkFeedParams parameters = user.ModifySubscription(recordObjId, resultsObjId, htmlTags, keywords);
+                UserManager.Instance.SaveUser(user);
+                response = new Tuple<ServerResponse, LinkFeedParams>(ServerResponse.Success, parameters);
+            }
+            catch (Exception ex)
+            {
+                WriteLog(ex);
+                response = new Tuple<ServerResponse, LinkFeedParams>(ServerResponse.ServerError, null);
             }
 
-            return ServerResponse.DummyResponse;
+            return response;
         }
-        public ServerResponse ModifyUpdate(LinkOwner modifiedEntry)
+
+        public ServerResponse RemoveFeed(string userid, string resultsid)
         {
-            using (System.IO.StreamWriter file = new System.IO.StreamWriter("RestApiTest.txt", true))
+            ServerResponse response = ServerResponse.ServerError;
+            try
             {
-                file.Write("[{0}] ModifyUpdate({1})", DateTime.Now, modifiedEntry.ToJson());
+                ObjectId userObjId = ObjectId.Parse(userid);
+                ObjectId resultsObjId = ObjectId.Parse(resultsid);
+                User user = UserManager.Instance.FindUserByID(userObjId);
+                user.RemoveLink(resultsObjId);
+                UserManager.Instance.SaveUser(user);
+                response = ServerResponse.Success;
             }
-
-            return ServerResponse.DummyResponse;
-        }
-        public ServerResponse RemoveItem(ObjectId itemid)
-        {
-            using (System.IO.StreamWriter file = new System.IO.StreamWriter("RestApiTest.txt", true))
+            catch (Exception ex)
             {
-                file.Write("[{0}] RemoveItem({1})", DateTime.Now, itemid.ToJson());
+                WriteLog(ex);
+                response = ServerResponse.ServerError;
             }
-
-            return ServerResponse.DummyResponse;
+            return response;
         }
+
         public ServerResponse ChangePassword(string newPassword)
         {
             using (System.IO.StreamWriter file = new System.IO.StreamWriter("RestApiTest.txt", true))
@@ -189,23 +171,39 @@ namespace AndroidAppServer
 
             return ServerResponse.DummyResponse;
         }
-        public ServerResponse DeleteUser(ObjectId userid)
-        {
-            using (System.IO.StreamWriter file = new System.IO.StreamWriter("RestApiTest.txt", true))
-            {
-                file.Write("[{0}] AddLinkFeed({1})", DateTime.Now, userid.ToJson());
-            }
 
-            return ServerResponse.DummyResponse;
+        public ServerResponse DeleteUser(string userid)
+        {
+            try
+            {
+                ObjectId userObjId = ObjectId.Parse(userid);
+                bool successful = UserManager.Instance.DeleteUser(userObjId);
+
+                if (successful)
+                    return ServerResponse.Success;
+                else
+                    return ServerResponse.ServerError;
+            }
+            catch (Exception ex)
+            {
+                WriteLog(ex);
+                return ServerResponse.ServerError;
+            }
         }
 
-        public List<LinkOwner> RetrieveUpdates(List<ObjectId> updates)
+        public List<Tuple<LinkFeedParams, List<UserLink>>> RetrieveUpdates(string userid)
         {
-            using (System.IO.StreamWriter file = new System.IO.StreamWriter("RestApiTest.txt", true))
+            try
             {
-                file.Write("[{0}] AddLinkFeed({1})", DateTime.Now, updates.ToJson());
+                ObjectId userObjId = ObjectId.Parse(userid);
+                User user = UserManager.Instance.FindUserByID(userObjId);
+                return user.GetAllLinkFeeds();
             }
-            return new List<LinkOwner>();
+            catch (Exception ex)
+            {
+                WriteLog(ex);
+                return null;
+            }
         }
     }
 }

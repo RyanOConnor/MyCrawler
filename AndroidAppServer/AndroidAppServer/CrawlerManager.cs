@@ -73,13 +73,13 @@ namespace AndroidAppServer
         {
             while (crawlerNodes.Count == 0) ;
             CrawlerNode node = crawlerNodes.OrderByDescending(x => x.Value.messageQueue.Count).Last().Value;
-            jobSet[record.id] = node;
+            jobSet[record.recordid] = node;
             node.EnqueueHtmlRecord(record);
         }
 
-        public void OnUpdateReceived(object sender, HtmlRecord args)
+        public void OnUpdateReceived(object sender, HtmlRecord record)
         {
-            jobSet.Remove(args.id);
+            jobSet.Remove(record.recordid);
         }
 
         public void GetJobStatus(ObjectId jobId)

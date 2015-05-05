@@ -12,17 +12,55 @@ using MongoDB.Bson.Serialization.Options;
 
 namespace AndroidAppServer
 {
-    public class HtmlRecord : Serializable
+    public interface IHtmlRecord
+    {
+        ObjectId recordid { get; set; }
+        string url { get; set; }
+        Uri domain { get; set; }
+        IHtmlResults AddResults(string htmlTags, ObjectId userid);
+        IHtmlResults GetHtmlResults(ObjectId resultsid);
+        void RemoveResults(ObjectId resultsid, ObjectId userid);
+    }
+
+    public interface IHtmlResults
+    {
+        ObjectId resultsid { get; set; }
+        string htmlTags { get; set; }
+        void AddResultsOwner(ObjectId userid);
+        List<UserLink> GetLinkFeedResults(HashSet<string> keywords);
+    }
+
+    public interface ILink
+    {
+        string url { get; set; }
+        string innerText { get; set; }
+        int GetPageRank(HashSet<string> keywords);
+    }
+
+    public class UserLink
+    {
+        string url { get; set; }
+        string innerText { get; set; }
+        int pageRank { get; set; }
+
+        public UserLink(string url, string innerText, int pageRank)
+        {
+            this.url = url;
+            this.innerText = innerText;
+            this.pageRank = pageRank;
+        }
+    }
+
+    public class HtmlRecord : IHtmlRecord
     {
         [BsonId]
-        public ObjectId id { get; set; }
+        public ObjectId recordid { get; set; }
         public string url { get; set; }
         public Uri domain { get; set; }
         public DateTime timeStamp { get; set; }
         [BsonDictionaryOptionsAttribute(DictionaryRepresentation.ArrayOfDocuments)]
         public Dictionary<ObjectId, HtmlResults> results { get; set; }
         public HttpStatusCode serverResponse { get; set; }
-        public int version = 0;
 
         public HtmlRecord(Uri domain)
         {
@@ -30,41 +68,29 @@ namespace AndroidAppServer
             this.domain = domain;
             timeStamp = DateTime.UtcNow;
             results = new Dictionary<ObjectId, HtmlResults>();
+            recordid = ObjectId.GenerateNewId();
         }
 
-        public LinkOwner AddResults(IHtmlResults newResults, ObjectId userid)
+        public IHtmlResults GetHtmlResults(ObjectId resultsid)
         {
-            IEnumerable<HtmlResults> existingResults = GetExistingResults(newResults);
+            return results[resultsid] as IHtmlResults;
+        }
+
+        public IHtmlResults AddResults(string htmlTags, ObjectId userid)
+        {
+            IEnumerable<IHtmlResults> existingResults = results.Values.Where(val => val.htmlTags == htmlTags);
 
             if (existingResults.Count() == 0)
             {
-                if (newResults is LinkFeed)
-                {
-                    return AddNewLinkFeed(newResults as ILinkFeed, userid);
-                }
-                else
-                {
-                    return AddNewTextUpdate(newResults as ITextUpdate, userid);
-                }
+                HtmlResults newResults = new HtmlResults(htmlTags);
+                newResults.AddResultsOwner(userid);
+                results.Add(newResults.resultsid, newResults);
+                return newResults as IHtmlResults;
             }
             else if (existingResults.Count() == 1)
             {
-                HtmlResults existingResult = existingResults.First() as HtmlResults;
-
-                if (newResults is LinkFeed)
-                {
-                    ILinkFeed newLinkFeed = newResults as ILinkFeed;
-                    LinkFeed existingLinkFeed = existingResult as LinkFeed;
-                    FeedOwner feedOwner = existingLinkFeed.AddFeedOwner(userid, newLinkFeed.keywords);
-                    return feedOwner;
-                }
-                else
-                {
-                    ITextUpdate newTextUpdate = newResults as ITextUpdate;
-                    TextUpdate textUpdate = existingResult as TextUpdate;
-                    TextOwner textOwner = textUpdate.AddTextOwner(userid, newTextUpdate.previousText);
-                    return textOwner;
-                }
+                existingResults.First().AddResultsOwner(userid);
+                return existingResults.First();
             }
             else
             {
@@ -72,329 +98,73 @@ namespace AndroidAppServer
             }
         }
 
-        private IEnumerable<HtmlResults> GetExistingResults(IHtmlResults newResults)
+        public void RemoveResults(ObjectId resultsid, ObjectId userid)
         {
-            return results.Values.Where(val => val.GetType() == newResults.GetType() &&
-                                               val.domain.AbsoluteUri == newResults.domain.AbsoluteUri &&
-                                               val.htmlTags.SequenceEqual(newResults.htmlTags));
-        }
-
-        private FeedOwner AddNewLinkFeed(ILinkFeed userLinkFeed, ObjectId userid)
-        {
-            LinkFeed newLinkFeed = new LinkFeed(userLinkFeed);
-            FeedOwner feedOwner = newLinkFeed.AddFeedOwner(userid, userLinkFeed.keywords);
-            results.Add(newLinkFeed.id, newLinkFeed);
-            return feedOwner;
-        }
-
-        private TextOwner AddNewTextUpdate(ITextUpdate userTextUpdate, ObjectId userid)
-        {
-            TextUpdate newTextUpdate = new TextUpdate(userTextUpdate);
-            TextOwner textOwner = newTextUpdate.AddTextOwner(userid, userTextUpdate.previousText);
-            results.Add(newTextUpdate.id, newTextUpdate);
-            return textOwner;
-        }
-
-        public LinkOwner ModifyResults(IHtmlResults modifiedResults, LinkOwner owner)
-        {
-            RemoveResultsOwner(owner);
-            return AddResults(modifiedResults, owner.userid);
-        }
-
-        public LinkOwner ModifyOwner(LinkOwner owner)
-        {
-            if (results.ContainsKey(owner.resultsid))
+            HtmlResults htmlResults = results[resultsid];
+            htmlResults.RemoveResultsOwner(userid);
+            if (htmlResults.owners.Count == 0)
             {
-                results[owner.resultsid].RemoveOwner(owner);
-            }
-
-            if (results[owner.resultsid] is LinkFeed)
-            {
-                LinkFeed linkFeed = results[owner.resultsid] as LinkFeed;
-                FeedOwner feedOwner = owner as FeedOwner;
-                return linkFeed.AddFeedOwner(feedOwner.userid, feedOwner.keywords);
-            }
-            else
-            {
-                TextUpdate textUpdate = results[owner.resultsid] as TextUpdate;
-                TextOwner textOwner = owner as TextOwner;
-                return textUpdate.AddTextOwner(textOwner.userid, textOwner.previousText);
-            }
-        }
-
-        public void RemoveResultsOwner(LinkOwner owner)
-        {
-            if (results.ContainsKey(owner.resultsid))
-            {
-                bool ownersNull = results[owner.resultsid].RemoveOwner(owner);
-                if (ownersNull)
-                {
-                    results.Remove(owner.resultsid);
-                }
+                results.Remove(resultsid);
             }
         }
     }
 
-    public interface IHtmlResults
+    public class HtmlResults : IHtmlResults
     {
-        ObjectId id { get; set; }
-        Uri domain { get; set; }
-        List<string> htmlTags { get; set; }
-    }
-
-    public interface ILinkFeed : IHtmlResults
-    {
-        HashSet<string> keywords { get; set; }
-        FeedOwner RetrievePageRanking(ObjectId userid);
-    }
-
-    public interface ITextUpdate : IHtmlResults
-    {
-        string previousText { get; set; }
-        string currentText { get; set; }
-    }
-
-    [BsonKnownTypes(typeof(HtmlResults), typeof(LinkOwner))]
-    public abstract class UserResultsBase
-    {
-        public Uri domain { get; set; }
-        public List<string> htmlTags { get; set; }
-
-        public UserResultsBase(Uri domain, List<string> tags)
-        {
-            this.domain = domain;
-            htmlTags = tags;
-        }
-    }
-
-    [BsonKnownTypes(typeof(LinkFeed), typeof(TextUpdate))]
-    public class HtmlResults : UserResultsBase, ISupportInitialize, Serializable
-    {
-        public ObjectId id { get; set; }
-        [BsonDictionaryOptionsAttribute(DictionaryRepresentation.ArrayOfDocuments)]
-        public Dictionary<ObjectId, LinkOwner> linkOwners { get; set; }
-
-        public HtmlResults(string url, List<string> tags)
-            : base(new Uri(url), tags)
-        {
-            id = ObjectId.GenerateNewId();
-            linkOwners = new Dictionary<ObjectId, LinkOwner>();
-        }
-
-        public void EndInit()
-        { }
-
-        public void BeginInit()
-        { }
-
-        public LinkOwner RetrieveResults(ObjectId userid)
-        {
-            if (linkOwners.ContainsKey(userid))
-            {
-                return linkOwners[userid];
-            }
-            else
-            {
-                return null;
-            }
-        }
-
-        public virtual bool RemoveOwner(LinkOwner linkOwner)
-        {
-            linkOwners.Remove(linkOwner.userid);
-
-            if (linkOwners.Count() == 0)
-                return true;
-            else
-                return false;
-        }
-    }
-
-    public class LinkFeed : HtmlResults, ILinkFeed, Serializable
-    {
-        public HashSet<string> keywords { get; set; }
-        [BsonDictionaryOptionsAttribute(DictionaryRepresentation.ArrayOfDocuments)]
-        private Dictionary<string, List<ObjectId>> keywordOwners { get; set; }
-
-        public LinkFeed(string url, List<string> htmlTags, HashSet<string> keywords)
-            : base(url, htmlTags)
-        {
-            this.keywords = keywords;
-            keywordOwners = new Dictionary<string, List<ObjectId>>();
-        }
-
-        public LinkFeed(ILinkFeed userLinkFeed)
-            : base(userLinkFeed.domain.AbsoluteUri, userLinkFeed.htmlTags)
-        {
-            keywordOwners = new Dictionary<string, List<ObjectId>>();
-        }
-
-        public FeedOwner AddFeedOwner(ObjectId userid, HashSet<string> keywords)
-        {
-            if (!linkOwners.ContainsKey(userid))
-            {
-                FeedOwner feedOwner = new FeedOwner(this.domain, this.htmlTags, keywords, userid, id);
-                linkOwners.Add(feedOwner.userid, feedOwner);
-                foreach (string keyword in feedOwner.keywords)
-                {
-                    if (keywordOwners.ContainsKey(keyword))
-                    {
-                        keywordOwners[keyword].Add(feedOwner.userid);
-                    }
-                    else
-                    {
-                        keywordOwners[keyword] = new List<ObjectId>();
-                        keywordOwners[keyword].Add(feedOwner.userid);
-                    }
-                }
-                return feedOwner;
-            }
-            else
-            {
-                return null;
-            }
-        }
-
-        public override bool RemoveOwner(LinkOwner linkOwner)
-        {
-            FeedOwner feedOwner = linkOwner as FeedOwner;
-            foreach (string keyword in (linkOwners[linkOwner.userid] as FeedOwner).keywords)
-            {
-                keywordOwners[keyword].Remove(feedOwner.userid);
-                if (keywordOwners[keyword].Count == 0)
-                {
-                    keywordOwners.Remove(keyword);
-                }
-            }
-            linkOwners.Remove(linkOwner.userid);
-
-            if (linkOwners.Count() == 0)
-                return true;
-            else
-                return false;
-        }
-
-        public FeedOwner RetrievePageRanking(ObjectId userid)
-        {
-            return linkOwners[userid] as FeedOwner;
-        }
-    }
-
-    //[BsonKnownTypes(typeof(TextUpdateResults))]
-    public class TextUpdate : HtmlResults, ITextUpdate, Serializable
-    {
-        public string previousText { get; set; }
-        public string currentText { get; set; }
-
-        public TextUpdate(string url, List<string> htmlTags, string previousText)
-            : base(url, htmlTags)
-        {
-            this.previousText = previousText;
-        }
-
-        public TextUpdate(ITextUpdate userTextUpdate)
-            : base(userTextUpdate.domain.AbsoluteUri, userTextUpdate.htmlTags)
-        {
-            previousText = userTextUpdate.previousText;
-        }
-
-        public TextOwner AddTextOwner(ObjectId userid, string text)
-        {
-            if (!linkOwners.ContainsKey(userid))
-            {
-                TextOwner textOwner = new TextOwner(this.domain, this.htmlTags, userid, id, text);
-                linkOwners.Add(textOwner.userid, textOwner);
-                return textOwner;
-            }
-            else
-            {
-                return null;
-            }
-        }
-    }
-
-    [BsonKnownTypes(typeof(FeedOwner), typeof(TextOwner))]
-    public class LinkOwner : UserResultsBase
-    {
+        [BsonId]
         public ObjectId resultsid { get; set; }
-        public ObjectId userid { get; set; }
-        public bool changeInContent { get; set; }
+        public string htmlTags { get; set; }
+        public List<ILink> links { get; set; }
+        public HashSet<ObjectId> owners { get; set; }
 
-        public LinkOwner(Uri domain, List<string> tags, ObjectId user, ObjectId results)
-            : base(domain, tags)
+        public HtmlResults(string htmlTags)
         {
-            resultsid = results;
-            userid = user;
+            this.htmlTags = htmlTags;
+            owners = new HashSet<ObjectId>();
+            links = new List<ILink>();
+            resultsid = ObjectId.GenerateNewId();
+        }
+
+        public void AddResultsOwner(ObjectId userid)
+        {
+            owners.Add(userid);
+        }
+
+        public void RemoveResultsOwner(ObjectId userid)
+        {
+            if (owners.Contains(userid))
+            {
+                owners.Remove(userid);
+            }
+        }
+
+        public List<UserLink> GetLinkFeedResults(HashSet<string> keywords)
+        {
+            List<UserLink> userResults = new List<UserLink>();
+            foreach (ILink link in links)
+            {
+                userResults.Add(new UserLink(link.url, link.innerText, link.GetPageRank(keywords)));
+            }
+            return userResults;
         }
     }
 
-    public class FeedOwner : LinkOwner
+    public class Link : ILink
     {
-        public HashSet<string> keywords { get; set; }
-        public Dictionary<string, int> userPageRank { get; set; }
+        public string url { get; set; }
+        public string innerText { get; set; }
+        // add picture property?
+        private Dictionary<string, int> wordCount { get; set; }
 
-        public FeedOwner(Uri domain, List<string> tags, HashSet<string> keywords, ObjectId user, ObjectId results)
-            : base(domain, tags, user, results)
+        public int GetPageRank(HashSet<string> keywords)
         {
-            this.keywords = keywords;
-            userPageRank = new Dictionary<string, int>();
+            int pageRank = 0;
+            foreach (string keyword in keywords)
+            {
+                if (wordCount.ContainsKey(keyword))
+                    pageRank += wordCount[keyword];
+            }
+            return pageRank;
         }
     }
-
-    public class TextOwner : LinkOwner
-    {
-        public string previousText { get; set; }
-
-        public TextOwner(Uri domain, List<string> tags, ObjectId user, ObjectId results, string text)
-            : base(domain, tags, user, results)
-        {
-            previousText = text;
-        }
-    }
-
-    /*public class LinkFeedResults : LinkFeed, Serializable
-    {
-        public List<ObjectId> users { get; set; }
-        [BsonDictionaryOptionsAttribute(DictionaryRepresentation.ArrayOfDocuments)]
-        public Dictionary<string, int> rankedResults { get; set; }
-
-        public LinkFeedResults(LinkFeed linkFeed)
-            : base(linkFeed.domain.OriginalString, linkFeed.htmlTags, linkFeed.keywords)
-        {
-            rankedResults = new Dictionary<string, int>();
-            users = new List<ObjectId>();
-        }
-
-        public ObjectId AddResultsOwner(ObjectId userid)
-        {
-            users.Add(userid);
-            return jobId;
-        }
-
-        public void RemoveOwner(ObjectId userId)
-        {
-            users.Remove(userId);
-        }
-    }*/
-
-
-    /*public class TextUpdateResults : TextUpdate, Serializable
-    {
-        public List<ObjectId> users { get; set; }
-
-        public TextUpdateResults(string url, List<string> tags, string innerText)
-            : base(url, tags, innerText)
-        { }
-
-        public ObjectId AddResultsOwner(ObjectId userid)
-        {
-            users.Add(userid);
-            return jobId;
-        }
-
-        public void RemoveOwner(ObjectId userId)
-        {
-            users.Remove(userId);
-        }
-    }*/
 }

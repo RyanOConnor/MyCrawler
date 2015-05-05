@@ -60,18 +60,15 @@ namespace AndroidAppServer
 
         public void Initialize(MongoCollection<HtmlRecord> records)
         {
-            if (records != null)
+            MongoCursor<HtmlRecord> cursor = records.FindAll();
+            if (cursor.Count() > 0)
             {
-                MongoCursor<HtmlRecord> cursor = records.FindAll();
-                if (cursor.Count() > 0)
+                foreach (HtmlRecord record in cursor)
                 {
-                    foreach (HtmlRecord record in cursor)
-                    {
-                        Job job = new Job(record.id, JobStatus.None, record.timeStamp);
-                        jobSet.Add(record.id, job);
-                        jobSchedule.Enqueue(record.timeStamp, record.id);
-                        jobStatus.Add(record.id, RecordStatus.Waiting);
-                    }
+                    Job job = new Job(record.recordid, JobStatus.None, record.timeStamp);
+                    jobSet.Add(record.recordid, job);
+                    jobSchedule.Enqueue(record.timeStamp, record.recordid);
+                    jobStatus.Add(record.recordid, RecordStatus.Waiting);
                 }
             }
         }

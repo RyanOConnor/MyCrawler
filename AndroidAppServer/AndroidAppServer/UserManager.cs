@@ -24,11 +24,20 @@ namespace AndroidAppServer
             }
         }
 
-        public bool ValidateLoginAttempt(string username, byte[] enteredPassword)
+        public ObjectId ValidateLoginAttempt(string username, byte[] enteredPassword)
         {
-            User user = Database.Instance.GetUserCollection().FindOneAs<User>(Query.EQ("username", username));
-            byte[] saltedHash = Authorize.GenerateSaltedHash(enteredPassword, user.password.passwordSalt);
-            return Authorize.IsValidHash(saltedHash, user.password.passwordHash);
+            User user = Database.Instance.userCollection.FindOneAs<User>(Query.EQ("username", username));
+            if (user != null)
+            {
+                byte[] saltedHash = Authorize.GenerateSaltedHash(enteredPassword, user.password.passwordSalt);
+
+                if (Authorize.IsValidHash(saltedHash, user.password.passwordHash))
+                    return user.id;
+                else
+                    return ObjectId.Empty;
+            }
+            else
+                return ObjectId.Empty;
         }
 
         public void SaveUser(User user)
@@ -36,12 +45,25 @@ namespace AndroidAppServer
             Database.Instance.userCollection.Save(user, WriteConcern.Acknowledged);
         }
 
+        public bool DeleteUser(ObjectId userid)
+        {
+            User user = FindUserByID(userid);
+            user.RemoveAllLinks();
+
+            IMongoQuery query = Query.EQ("_id", userid);
+            WriteConcernResult concern = Database.Instance.userCollection.Remove(query, WriteConcern.Acknowledged);
+            if (concern.Ok)
+                return true;
+            else
+                return false;
+        }
+
         public User FindUserByID(ObjectId userid)
         {
             try
             {
-                IMongoQuery queryUser = Query.EQ("_id", userid);
-                User user = Database.Instance.userCollection.FindOne(queryUser);
+                IMongoQuery query = Query.EQ("_id", userid);
+                User user = Database.Instance.userCollection.FindOne(query);
                 return user;
             }
             catch (Exception ex)

@@ -12,7 +12,7 @@ using MongoDB.Driver.Builders;
 
 namespace AndroidAppServer
 {
-    class DataManager
+    public class DataManager
     {
         private JobSchedule _jobSchedule = new JobSchedule();
         public JobSchedule jobSchedule
@@ -33,7 +33,7 @@ namespace AndroidAppServer
 
         public void Start()
         {
-            MongoCollection<HtmlRecord> htmlCollection = Database.Instance.GetHtmlCollection();
+            MongoCollection<HtmlRecord> htmlCollection = Database.Instance.htmlCollection;
             jobSchedule.Initialize(htmlCollection);
 
             Thread scheduler = new Thread(ScheduleJobs);
@@ -63,16 +63,64 @@ namespace AndroidAppServer
             }
         }
 
-        public LinkOwner CreateEntry(IHtmlResults newUpdate, ObjectId userid)
+        public IHtmlRecord CreateHtmlRecord(Uri domain)
+        {
+            IHtmlRecord record = null;
+            try
+            {
+                record = Database.Instance.htmlCollection.FindOneAs<HtmlRecord>
+                                           (Query.EQ("url", domain.AbsoluteUri)) as IHtmlRecord;
+                if (record == null)
+                {
+                    record = new HtmlRecord(domain);
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine(ex.ToString());
+                throw ex;
+            }
+            return record;
+        }
+
+        public IHtmlRecord GetHtmlRecord(ObjectId recordid)
+        {
+            IHtmlRecord record = null;
+            try
+            {
+                record = Database.Instance.htmlCollection.FindOneAs<HtmlRecord>
+                                           (Query.EQ("_id", recordid)) as IHtmlRecord;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine(ex.ToString());
+                throw ex;
+            }
+            return record;
+        }
+
+        public void SaveHtmlRecord(IHtmlRecord record)
         {
             try
             {
-                HtmlRecord record = Database.Instance.htmlCollection.FindOneAs<HtmlRecord>(Query.EQ("url", newUpdate.domain.AbsoluteUri));
-                LinkOwner ownerResult = null;
+                Database.Instance.htmlCollection.Save(record, WriteConcern.Acknowledged);
+            }
+            catch (MongoWriteConcernException ex)
+            {
+                Console.WriteLine(ex.ToString());
+                throw ex;
+            }
+        }
+
+        /*public ObjectId CreateEntry(IHtmlRecord newEntry, ObjectId userid)
+        {
+            try
+            {
+                HtmlRecord record = Database.Instance.htmlCollection.FindOneAs<HtmlRecord>(Query.EQ("url", newEntry.domain.AbsoluteUri));
+                ObjectId ownerResult = null;
                 if(record == null)
                 {
-                    record = new HtmlRecord(newUpdate.domain);
-                    ownerResult = record.AddResults(newUpdate, userid);
+                    ownerResult = record.AddResults(newEntry as HtmlRecord, userid);
                     Database.Instance.htmlCollection.Save(record, WriteConcern.Acknowledged);
                     jobSchedule.AddNewJob(record.id, record.timeStamp);
                     processJobs.Set();
@@ -91,7 +139,7 @@ namespace AndroidAppServer
                 // TODO: stop potential stack overflow exception
                 return CreateEntry(newUpdate, userid);
             }
-        }
+        }*/
 
         // replicates CreateEntry in the event of record duplication during a parallel "Save"
         //      
@@ -117,7 +165,7 @@ namespace AndroidAppServer
             }
         }*/
 
-        public bool Edit(HtmlRecord record)
+        /*public bool Edit(HtmlRecord record)
         {
             var result = Database.Instance.htmlCollection.FindAndModify(Query.And(Query.EQ("url", record.domain.AbsoluteUri),
                                                                                   Query.EQ("Version", record.version)),
@@ -130,32 +178,10 @@ namespace AndroidAppServer
                                                                               .Set("serverResponse", record.serverResponse)
                                                                               .Inc("version", 1));
             return result.ModifiedDocument != null;
-        }
-
-        public LinkOwner ModifyOwnership(LinkOwner newOwnerResults)
-        {
-            try
-            {
-                HtmlRecord record = RetrieveEntryById(newOwnerResults.resultsid);
-                LinkOwner linkOwner = record.ModifyOwner(newOwnerResults);
-
-                Database.Instance.htmlCollection.Save(record, WriteConcern.Acknowledged);
-                return linkOwner;
-            }
-            catch(MongoWriteConcernException ex)
-            {
-                Console.WriteLine(ex.ToString());
-                throw ex;
-            }
-            catch(Exception ex)
-            {
-                Console.WriteLine(ex.ToString());
-                throw ex;
-            }
-        }
+        }*/
 
         // User is unsubscribing altogether
-        public void RemoveResultsOwner(LinkOwner entryToRemove)
+        /*public void RemoveResultsOwner(LinkOwner entryToRemove)
         {
             try
             {
@@ -174,9 +200,9 @@ namespace AndroidAppServer
                 Console.WriteLine(ex.ToString());
                 throw ex;
             }
-        }
+        }*/
 
-        public LinkOwner ManualRequest(LinkOwner owner)
+        /*public LinkOwner ManualRequest(LinkOwner owner)
         {
             try
             {
@@ -189,7 +215,7 @@ namespace AndroidAppServer
                 Console.WriteLine(ex.ToString());
                 throw ex;
             }
-        }
+        }*/
 
         public HtmlRecord RetrieveEntryById(ObjectId id)
         {
@@ -211,7 +237,7 @@ namespace AndroidAppServer
             try
             {
                 record.timeStamp = DateTime.UtcNow;
-                jobSchedule.UpdateSchedule(record.id);
+                jobSchedule.UpdateSchedule(record.recordid);
                 Database.Instance.htmlCollection.Save(typeof(HtmlRecord), record);
                 //UserManager.Instance.UpdateUsersByRecord(record);
                 processJobs.Set();

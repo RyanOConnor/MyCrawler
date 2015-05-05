@@ -27,14 +27,6 @@ namespace AndroidAppServer
             //CrawlerManager.Instance.AllowCrawlerIP(endPoint);
             //CrawlerManager.Instance.StartListening(endPoint.Address);
 
-            //CreateUser();
-        }
-
-        public void CreateUser()
-        {
-            IServiceApi api = new ServiceApi();
-            //api.CreateNewAccount(DateTime.Now.ToString(), "success?");
-            
         }
     }
 }

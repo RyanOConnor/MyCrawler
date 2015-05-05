@@ -22,6 +22,25 @@ namespace AndroidAppServer
         }
     }
 
+    public class LinkFeedParams
+    {
+        public ObjectId recordid { get; private set; }
+        public ObjectId resultsid { get; private set; }
+        public string url { get; private set; }
+        public string htmlTags { get; private set; }
+        public HashSet<string> keywords { get; set; }
+
+        public LinkFeedParams(ObjectId recordid, ObjectId resultsid, string url,
+                                string htmlTags, HashSet<string> keywords)
+        {
+            this.recordid = recordid;
+            this.resultsid = resultsid;
+            this.url = url;
+            this.htmlTags = htmlTags;
+            this.keywords = keywords;
+        }
+    }
+
     public class User : Serializable
     {
         [BsonId]
@@ -30,25 +49,29 @@ namespace AndroidAppServer
         public Password password { get; set; }
         public List<Password> previousPasswords { get; set; }
         [BsonDictionaryOptions(DictionaryRepresentation.ArrayOfDocuments)]
-        public Dictionary<ObjectId, LinkOwner> links { get; private set; }
+        public Dictionary<ObjectId, LinkFeedParams> links { get; private set; }
 
         public User(string newUserName, Password newPassword)
         {
             username = newUserName;
             password = newPassword;
-            links = new Dictionary<ObjectId, LinkOwner>();
+            links = new Dictionary<ObjectId, LinkFeedParams>();
             previousPasswords = new List<Password>();
         }
 
-        public LinkOwner AddLinkFeed(string url, List<string> htmlTags, HashSet<string> keywords)
+        public LinkFeedParams AddLinkFeed(string url, string htmlTags, HashSet<string> keywords)
         {
-            if (!links.Any(pair => pair.Value.domain.OriginalString == url &&
-                                   pair.Value.htmlTags.SequenceEqual(htmlTags)))
+            if (!links.Any(pair => pair.Value.url == url &&
+                                   pair.Value.htmlTags == htmlTags))
             {
-                ILinkFeed linkFeed = new LinkFeed(url, htmlTags, keywords);
-                FeedOwner feedResults = DataManager.Instance.CreateEntry(linkFeed, id) as FeedOwner;
-                links.Add(feedResults.resultsid, feedResults);
-                return feedResults;
+                IHtmlRecord record = DataManager.Instance.CreateHtmlRecord(new Uri(url));
+                IHtmlResults results = record.AddResults(htmlTags, id);
+                LinkFeedParams parameters = new LinkFeedParams(record.recordid, results.resultsid,
+                                                               record.domain.AbsoluteUri, results.htmlTags, keywords);
+                DataManager.Instance.SaveHtmlRecord(record);
+                links.Add(results.resultsid, parameters);
+
+                return parameters;
             }
             else
             {
@@ -56,54 +79,63 @@ namespace AndroidAppServer
             }
         }
 
-        public LinkOwner AddTextUpdate(string url, List<string> htmlTags, string innerText)
+        public List<Tuple<LinkFeedParams, List<UserLink>>> GetAllLinkFeeds()
         {
-            if (!links.Any(pair => pair.Value.domain.OriginalString == url &&
-                                  pair.Value.htmlTags.SequenceEqual(htmlTags)))
+            List<Tuple<LinkFeedParams, List<UserLink>>> linkFeeds = new List<Tuple<LinkFeedParams, List<UserLink>>>();
+
+            foreach (KeyValuePair<ObjectId, LinkFeedParams> pair in links)
             {
-                ITextUpdate textUpdate = new TextUpdate(url, htmlTags, innerText);
-                TextOwner textResults = DataManager.Instance.CreateEntry(textUpdate, id) as TextOwner;
-                links.Add(textResults.resultsid, textResults);
-                return textResults;
+                IHtmlRecord record = DataManager.Instance.GetHtmlRecord(pair.Value.recordid);
+                IHtmlResults results = record.GetHtmlResults(pair.Value.resultsid);
+                linkFeeds.Add(new Tuple<LinkFeedParams, List<UserLink>>(pair.Value,
+                                        results.GetLinkFeedResults(pair.Value.keywords)));
             }
-            else
+            return linkFeeds;
+        }
+
+        public LinkFeedParams ModifySubscription(ObjectId recordid, ObjectId resultsid, string htmlTags, HashSet<string> keywords)
+        {
+            LinkFeedParams parameters = null;
+            if (links.ContainsKey(resultsid))
             {
-                throw new Exception();
+                if (links[resultsid].htmlTags == htmlTags)
+                {
+                    links[resultsid].keywords = keywords;
+                    parameters = links[resultsid];
+                }
+                else
+                {
+                    IHtmlRecord record = DataManager.Instance.GetHtmlRecord(recordid);
+                    record.RemoveResults(resultsid, id);
+                    IHtmlResults results = record.AddResults(htmlTags, id);
+                    parameters = new LinkFeedParams(record.recordid, results.resultsid,
+                                                    record.domain.AbsoluteUri, results.htmlTags, keywords);
+                    DataManager.Instance.SaveHtmlRecord(record);
+                    links.Add(results.resultsid, parameters);
+                }
+            }
+            return parameters;
+        }
+
+        public void RemoveLink(ObjectId resultsid)
+        {
+            if (links.ContainsKey(resultsid))
+            {
+                ObjectId recordid = links[resultsid].recordid;
+                IHtmlRecord record = DataManager.Instance.GetHtmlRecord(recordid);
+                record.RemoveResults(resultsid, id);
+                links.Remove(resultsid);
+                DataManager.Instance.SaveHtmlRecord(record);
             }
         }
 
-        public LinkOwner ModifySubscription(LinkOwner modifiedResults)
+        public void RemoveAllLinks()
         {
-            if (links.ContainsKey(modifiedResults.resultsid))
+            foreach (LinkFeedParams linkParams in links.Values)
             {
-                LinkOwner linkOwner = DataManager.Instance.ModifyOwnership(modifiedResults);
-                links[modifiedResults.resultsid] = linkOwner;
-                return linkOwner;
+                IHtmlRecord record = DataManager.Instance.GetHtmlRecord(linkParams.recordid);
+                record.RemoveResults(linkParams.resultsid, id);
             }
-            else
-            {
-                throw new Exception();
-            }
-        }
-
-        public void UpdateResults(LinkOwner userResults, ObjectId itemid)
-        {
-            if (links.ContainsKey(itemid))
-            {
-                links[itemid] = userResults;
-            }
-            else
-                throw new Exception();
-        }
-
-        public void RemoveLink(ObjectId itemId)
-        {
-            if (links.ContainsKey(itemId))
-            {
-                links.Remove(itemId);
-            }
-            else
-                throw new Exception();
         }
 
         public bool ChangePassword(Password newPassword)
