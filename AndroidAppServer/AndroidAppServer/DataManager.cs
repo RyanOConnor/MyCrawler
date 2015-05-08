@@ -46,15 +46,10 @@ namespace AndroidAppServer
             {
                 while (true)
                 {
-                    if (jobSchedule.jobSchedule.Count == 0)
-                    {
-                        processEvent.WaitOne();
-                    }
-
                     KeyValuePair<DateTime, ObjectId> jobPair = jobSchedule.GetJob();
                     if (jobPair.Key > DateTime.UtcNow)
                     {
-                        Thread.Sleep((int)(jobPair.Key - DateTime.Now).TotalMilliseconds);
+                        Thread.Sleep((int)(jobPair.Key - DateTime.UtcNow).TotalMilliseconds);
                     }
 
                     HtmlRecord record = RetrieveEntryById(jobPair.Value);

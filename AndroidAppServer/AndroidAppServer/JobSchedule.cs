@@ -45,10 +45,33 @@ namespace AndroidAppServer
     public class JobSchedule
     {
         public const int UpdateFrequency = 4;
-        private Thread getJobThread { get; set; }
-        private Dictionary<ObjectId, RecordStatus> jobStatus { get; set; }
-        private HashSet<ObjectId> jobsProcessing { get; set; }
-        private PriorityQueue<DateTime, ObjectId> _jobSchedule { get; set; }
+        private HashSet<ObjectId> _jobsProcessing;
+        private HashSet<ObjectId> jobsProcessing
+        {
+            get
+            {
+                if (_jobsProcessing == null)
+                    _jobsProcessing = new HashSet<ObjectId>();
+                lock(_jobsProcessing)
+                {
+                    return _jobsProcessing;
+                }
+            }
+        }
+        private Dictionary<ObjectId, RecordStatus> _jobStatus;
+        private Dictionary<ObjectId, RecordStatus> jobStatus
+        {
+            get
+            {
+                if(_jobStatus == null)
+                    _jobStatus = new Dictionary<ObjectId,RecordStatus>();
+                lock(_jobStatus)
+                {
+                    return _jobStatus;
+                }
+            }
+        }
+        private PriorityQueue<DateTime, ObjectId> _jobSchedule;
         public PriorityQueue<DateTime, ObjectId> jobSchedule
         {
             get 
@@ -61,7 +84,7 @@ namespace AndroidAppServer
                 } 
             }
         }
-        private Dictionary<ObjectId, Job> _jobSet { get; set; }
+        private Dictionary<ObjectId, Job> _jobSet;
         private Dictionary<ObjectId, Job> jobSet
         {
             get 
@@ -77,9 +100,6 @@ namespace AndroidAppServer
 
         public void Initialize(MongoCollection<HtmlRecord> records)
         {
-            jobStatus = new Dictionary<ObjectId, RecordStatus>();
-            jobsProcessing = new HashSet<ObjectId>();
-
             MongoCursor<HtmlRecord> cursor = records.FindAll();
             if (cursor.Count() > 0)
             {
@@ -95,6 +115,7 @@ namespace AndroidAppServer
 
         public KeyValuePair<DateTime, ObjectId> GetJob()
         {
+            while (jobSchedule.Count == 0) ;
             KeyValuePair<DateTime, ObjectId> pair = jobSchedule.Dequeue();
             ObjectId jobId = pair.Value;
             jobsProcessing.Add(jobId);
@@ -120,11 +141,6 @@ namespace AndroidAppServer
                 return true;
             else
                 return false;
-        }
-
-        public void ReturnJob(KeyValuePair<DateTime, ObjectId> jobPair)
-        {
-
         }
 
         public void AddNewJob(ObjectId recordid, DateTime deadline)
