@@ -14,12 +14,13 @@ namespace AndroidAppServer
 {
     public class DataManager
     {
+        private Thread scheduleJobsProc { get; set; }
+        private ManualResetEvent processEvent = new ManualResetEvent(false);
         private JobSchedule _jobSchedule = new JobSchedule();
         public JobSchedule jobSchedule
         {
             get { lock (_jobSchedule) { return _jobSchedule; } }
         }
-        private ManualResetEvent processJobs = new ManualResetEvent(false);
         private static DataManager _instance;
         public static DataManager Instance
         {
@@ -33,220 +34,83 @@ namespace AndroidAppServer
 
         public void Start()
         {
-            MongoCollection<HtmlRecord> htmlCollection = Database.Instance.htmlCollection;
-            jobSchedule.Initialize(htmlCollection);
+            jobSchedule.Initialize(Database.Instance.htmlCollection);
 
-            Thread scheduler = new Thread(ScheduleJobs);
-            scheduler.Start();
-        }
-
-        public void AddCrawlerEvent(CrawlerNode node)
-        {
-            node.UpdateReceived += new EventHandler<HtmlRecord>(UpdateEntry);
+            scheduleJobsProc = new Thread(ScheduleJobs);
+            scheduleJobsProc.Start();
         }
 
         private void ScheduleJobs()
         {
-            while (true)
+            try
             {
-                if (jobSchedule.jobSchedule.Count == 0)
+                while (true)
                 {
-                    processJobs.WaitOne();
+                    if (jobSchedule.jobSchedule.Count == 0)
+                    {
+                        processEvent.WaitOne();
+                    }
+
+                    KeyValuePair<DateTime, ObjectId> jobPair = jobSchedule.GetJob();
+                    if (jobPair.Key > DateTime.UtcNow)
+                    {
+                        Thread.Sleep((int)(jobPair.Key - DateTime.Now).TotalMilliseconds);
+                    }
+
+                    HtmlRecord record = RetrieveEntryById(jobPair.Value);
+                    CrawlerManager.Instance.DistributeWork(record);
+
+                    processEvent.Reset();
                 }
-
-                ObjectId job = jobSchedule.GetJob();
-
-                HtmlRecord record = RetrieveEntryById(job);
-                CrawlerManager.Instance.DistributeWork(record);
-
-                processJobs.Reset();
+            }
+            catch (ThreadInterruptedException)
+            {
+                scheduleJobsProc = new Thread(ScheduleJobs);
+                scheduleJobsProc.Start();
             }
         }
 
         public IHtmlRecord CreateHtmlRecord(Uri domain)
         {
-            IHtmlRecord record = null;
-            try
-            {
-                record = Database.Instance.htmlCollection.FindOneAs<HtmlRecord>
+            IHtmlRecord record = Database.Instance.htmlCollection.FindOneAs<HtmlRecord>
                                            (Query.EQ("url", domain.AbsoluteUri)) as IHtmlRecord;
-                if (record == null)
-                {
-                    record = new HtmlRecord(domain);
-                }
-            }
-            catch (Exception ex)
+            if (record == null)
             {
-                Console.WriteLine(ex.ToString());
-                throw ex;
+                record = new HtmlRecord(domain);
             }
+
             return record;
         }
 
         public IHtmlRecord GetHtmlRecord(ObjectId recordid)
         {
-            IHtmlRecord record = null;
-            try
-            {
-                record = Database.Instance.htmlCollection.FindOneAs<HtmlRecord>
-                                           (Query.EQ("_id", recordid)) as IHtmlRecord;
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine(ex.ToString());
-                throw ex;
-            }
-            return record;
+            return Database.Instance.htmlCollection.Find(Query.EQ("_id", recordid))
+                                                   .SetLimit(1).First();
         }
 
         public void SaveHtmlRecord(IHtmlRecord record)
         {
-            try
+            Database.Instance.htmlCollection.Save(record, WriteConcern.Acknowledged);
+            if(!jobSchedule.JobInSchedule(record.recordid))
             {
-                Database.Instance.htmlCollection.Save(record, WriteConcern.Acknowledged);
-            }
-            catch (MongoWriteConcernException ex)
-            {
-                Console.WriteLine(ex.ToString());
-                throw ex;
+                jobSchedule.AddNewJob(record.recordid, DateTime.UtcNow);
+                scheduleJobsProc.Interrupt();
             }
         }
-
-        /*public ObjectId CreateEntry(IHtmlRecord newEntry, ObjectId userid)
-        {
-            try
-            {
-                HtmlRecord record = Database.Instance.htmlCollection.FindOneAs<HtmlRecord>(Query.EQ("url", newEntry.domain.AbsoluteUri));
-                ObjectId ownerResult = null;
-                if(record == null)
-                {
-                    ownerResult = record.AddResults(newEntry as HtmlRecord, userid);
-                    Database.Instance.htmlCollection.Save(record, WriteConcern.Acknowledged);
-                    jobSchedule.AddNewJob(record.id, record.timeStamp);
-                    processJobs.Set();
-                }
-                else
-                {
-                    ownerResult = record.AddResults(newUpdate, userid);
-                    Database.Instance.htmlCollection.Save(record, WriteConcern.Acknowledged);
-                }
-
-                return ownerResult;
-            }
-            catch(MongoWriteConcernException ex)
-            {
-                Console.WriteLine(ex.ToString());
-                // TODO: stop potential stack overflow exception
-                return CreateEntry(newUpdate, userid);
-            }
-        }*/
-
-        // replicates CreateEntry in the event of record duplication during a parallel "Save"
-        //      
-        /*public LinkOwner ModifyHtmlResults(IHtmlResults modifiedEntry, LinkOwner owner)
-        {
-            try
-            {
-                HtmlRecord record = Database.Instance.htmlCollection.FindOneAs<HtmlRecord>(Query.EQ("url", modifiedEntry.domain.AbsoluteUri));
-                LinkOwner ownerResult = record.ModifyResults(modifiedEntry, owner);
-
-                Database.Instance.htmlCollection.Save(record, WriteConcern.Acknowledged);
-                return ownerResult;
-            }
-            catch(MongoWriteConcernException ex)
-            {
-                Console.WriteLine(ex.ToString());
-                throw ex;
-            }
-            catch(Exception ex)
-            {
-                Console.WriteLine(ex.ToString());
-                throw ex;
-            }
-        }*/
-
-        /*public bool Edit(HtmlRecord record)
-        {
-            var result = Database.Instance.htmlCollection.FindAndModify(Query.And(Query.EQ("url", record.domain.AbsoluteUri),
-                                                                                  Query.EQ("Version", record.version)),
-                                                                        null,
-                                                                        Update.Set("_id", record.id)
-                                                                              .Set("url", record.url)
-                                                                              .Set("domain", record.domain.ToBson())
-                                                                              .Set("timeStamp", record.timeStamp)
-                                                                              .Set("results", record.results.ToBson())
-                                                                              .Set("serverResponse", record.serverResponse)
-                                                                              .Inc("version", 1));
-            return result.ModifiedDocument != null;
-        }*/
-
-        // User is unsubscribing altogether
-        /*public void RemoveResultsOwner(LinkOwner entryToRemove)
-        {
-            try
-            {
-                HtmlRecord record = RetrieveEntryById(entryToRemove.resultsid);
-                record.RemoveResultsOwner(entryToRemove);
-
-                Database.Instance.htmlCollection.Save(record, WriteConcern.Acknowledged);
-            }
-            catch(MongoWriteConcernException ex)
-            {
-                Console.WriteLine(ex.ToString());
-                throw ex;
-            }
-            catch(Exception ex)
-            {
-                Console.WriteLine(ex.ToString());
-                throw ex;
-            }
-        }*/
-
-        /*public LinkOwner ManualRequest(LinkOwner owner)
-        {
-            try
-            {
-                IMongoQuery query = Query.EQ("results.k", owner.resultsid);
-                HtmlRecord record = Database.Instance.htmlCollection.FindOne(query);
-                return record.results[owner.resultsid].RetrieveResults(owner.userid);
-            }
-            catch(Exception ex)
-            {
-                Console.WriteLine(ex.ToString());
-                throw ex;
-            }
-        }*/
 
         public HtmlRecord RetrieveEntryById(ObjectId id)
         {
-            try
-            {
-                IMongoQuery queryId = Query.EQ("_id", id);
-                HtmlRecord entity = Database.Instance.htmlCollection.FindOne(queryId);
-                return entity;
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine(ex.ToString());
-                throw ex;
-            }
+            IMongoQuery queryId = Query.EQ("_id", id);
+            HtmlRecord entity = Database.Instance.htmlCollection.FindOne(queryId);
+            return entity;
         }
 
-        public void UpdateEntry(object sender, HtmlRecord record)
+        public void UpdateEntry(HtmlRecord record)
         {
-            try
-            {
-                record.timeStamp = DateTime.UtcNow;
-                jobSchedule.UpdateSchedule(record.recordid);
-                Database.Instance.htmlCollection.Save(typeof(HtmlRecord), record);
-                //UserManager.Instance.UpdateUsersByRecord(record);
-                processJobs.Set();
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine(ex.ToString());
-                throw ex;
-            }
+            record.timeStamp = DateTime.UtcNow;
+            jobSchedule.UpdateSchedule(record.recordid);
+            Database.Instance.htmlCollection.Save(typeof(HtmlRecord), record);
+            processEvent.Set();
         }
     }
 }

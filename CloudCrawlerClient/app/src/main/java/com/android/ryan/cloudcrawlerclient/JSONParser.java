@@ -28,7 +28,9 @@ public class JSONParser {
     public String parseUserAuth(JSONObject obj) {
         String userAuth = "";
         try{
-            userAuth = obj.getString("Value");
+            if(obj.getBoolean("Successful")) {
+                userAuth = obj.getString("Value");
+            }
         } catch(JSONException ex) {
             Log.d("JSONParse=parseUserAuth", ex.getMessage());
             ex.printStackTrace();
@@ -113,7 +115,7 @@ public class JSONParser {
             if(!obj.getBoolean("Successful"))
                 return linkFeeds;
             else{
-                JSONArray tupleList = obj.getJSONArray("Value");
+                JSONArray tupleList = new JSONArray(obj.getString("Value"));
                 for(int i = 0; i < tupleList.length(); i++){
                     JSONObject tuple = tupleList.getJSONObject(i);
                     FeedResults feedResults = parseFeedResults(tuple.getJSONObject("Item1"));
@@ -121,7 +123,7 @@ public class JSONParser {
                     linkFeeds.add(feedResults);
                 }
             }
-        }catch(Exception ex){
+        } catch(Exception ex) {
             ex.printStackTrace();
             Log.d(this.getClass().toString(), ex.getStackTrace().toString());
         }
@@ -145,7 +147,7 @@ public class JSONParser {
     }
 
     private List<Link> parseListOfLinks(JSONArray jArray){
-        List<Link> links = null;
+        List<Link> links = new ArrayList<>();
         try{
             for(int i = 0; i < jArray.length(); i++){
                 JSONObject jLink = jArray.getJSONObject(i);

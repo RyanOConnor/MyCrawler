@@ -1,26 +1,28 @@
 
- var div = document.createElement('div');
- document.body.appendChild(div);
- div.className = "waitBlock";
- div.style.backgroundColor = "black";
- div.style.position = "fixed";
- div.style.width = "100%";
- div.style.height = "100%";
- div.setAttribute("z-index", "999999");
- div.style.opacity = 0.5;
- div.style.left = 0;
- div.style.top = 0;
+function start(){
+    var div = document.createElement('div');
+    document.body.appendChild(div);
+    div.className = "waitBlock";
+    div.style.backgroundColor = "black";
+    div.style.position = "fixed";
+    div.style.width = "100%";
+    div.style.height = "100%";
+    div.setAttribute("z-index", "999999");
+    div.style.opacity = 0.5;
+    div.style.left = 0;
+    div.style.top = 0;
 
- var x = document.getElementsByTagName('a');
- for(var i = 0; i < x.length; i++){
+    var x = document.getElementsByTagName('a');
+    for(var i = 0; i < x.length; i++){
     x[i].addEventListener("click", highlight, false);
     x[i].onclick = String(x[i].href);
     x[i].href = "javascript:void(0);" + x[i].href;
- }
+    }
 
- div = document.getElementsByClassName("waitBlock")[0];
- var parent = div.parentNode;
- parent.removeChild(div);
+    div = document.getElementsByClassName("waitBlock")[0];
+    var parent = div.parentNode;
+    parent.removeChild(div);
+ }
 
  function highlight() {
     debugger;
@@ -50,11 +52,20 @@
     dialog.appendChild(yesBtn);
     dialog.appendChild(noBtn);
     dialog.id = "confirmationDialog";
+    dialog.style.height = "auto";
+    dialog.style.width = "auto";
     message.innerText = "Is this correct?";
+    message.style.fontSize = "medium";
     yesBtn.innerText = "Yes";
+    yesBtn.style.float = "left";
+    yesBtn.style.marginLeft = "10px";
+    yesBtn.style.marginRight = "5px";
     noBtn.innerText = "No";
-    yesBtn.addEventListener("click", function(){  debugger; returnToAndroid(nodePath, hrefs); }, false);
+    noBtn.style.float = "left";
+    yesBtn.addEventListener("click", function(){ returnToAndroid(nodePath, hrefs); }, false);
     noBtn.addEventListener("click", function(){ resetState(prevBackground, prevColor, nodes); }, false);
+    document.getElementById("confirmationDialog").showModal();
+    dialog.style.width = String((yesBtn.offsetWidth + noBtn.offsetWidth) * 2) + "px";
     document.getElementById("confirmationDialog").showModal();
  }
 
@@ -90,9 +101,12 @@
  }
 
  function resetState(prevBackground, prevColor, nodes){
+    document.getElementById("confirmationDialog").open = false;
     for(var i = 0; i < nodes.length; i++){
         nodes[i].style.backgroundColor = prevBackground;
         nodes[i].style.color = prevColor;
     }
     document.getElementById("confirmationDialog").close();
  }
+
+ start();

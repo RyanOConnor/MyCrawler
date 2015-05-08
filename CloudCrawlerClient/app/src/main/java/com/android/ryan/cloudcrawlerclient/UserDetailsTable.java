@@ -12,12 +12,6 @@ public class UserDetailsTable {
         this.password = password;
     }
 
-    public UserDetailsTable(){
-        super();
-        this.username = null;
-        this.password = null;
-    }
-
     public String getUsername() {
         return username;
     }
@@ -26,11 +20,4 @@ public class UserDetailsTable {
         return password;
     }
 
-    public void setUsername(String username) {
-        this.username = username;
-    }
-
-    public void setPassword(String password) {
-        this.password = password;
-    }
 }

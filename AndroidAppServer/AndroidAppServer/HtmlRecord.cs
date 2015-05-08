@@ -37,11 +37,11 @@ namespace AndroidAppServer
         int GetPageRank(HashSet<string> keywords);
     }
 
-    public class UserLink
+    public class UserLink : Serializable
     {
-        string url { get; set; }
-        string innerText { get; set; }
-        int pageRank { get; set; }
+        public string url { get; private set; }
+        public string innerText { get; private set; }
+        public int pageRank { get; private set; }
 
         public UserLink(string url, string innerText, int pageRank)
         {
@@ -51,7 +51,7 @@ namespace AndroidAppServer
         }
     }
 
-    public class HtmlRecord : IHtmlRecord
+    public class HtmlRecord : IHtmlRecord, Serializable
     {
         [BsonId]
         public ObjectId recordid { get; set; }
@@ -109,19 +109,20 @@ namespace AndroidAppServer
         }
     }
 
-    public class HtmlResults : IHtmlResults
+    public class HtmlResults : IHtmlResults, Serializable
     {
         [BsonId]
         public ObjectId resultsid { get; set; }
         public string htmlTags { get; set; }
-        public List<ILink> links { get; set; }
+        [BsonIgnoreIfNull][BsonDictionaryOptionsAttribute(DictionaryRepresentation.ArrayOfDocuments)]
+        public Dictionary<string, Link> links { get; set; }
         public HashSet<ObjectId> owners { get; set; }
 
         public HtmlResults(string htmlTags)
         {
             this.htmlTags = htmlTags;
             owners = new HashSet<ObjectId>();
-            links = new List<ILink>();
+            links = new Dictionary<string, Link>();
             resultsid = ObjectId.GenerateNewId();
         }
 
@@ -141,28 +142,36 @@ namespace AndroidAppServer
         public List<UserLink> GetLinkFeedResults(HashSet<string> keywords)
         {
             List<UserLink> userResults = new List<UserLink>();
-            foreach (ILink link in links)
+            if (links != null)
             {
-                userResults.Add(new UserLink(link.url, link.innerText, link.GetPageRank(keywords)));
+                foreach (Link link in links.Values)
+                {
+                    int pageRank = link.GetPageRank(keywords);
+                    UserLink userLink = new UserLink(link.url, link.innerText, pageRank);
+                    userResults.Add(userLink);
+                }
             }
             return userResults;
         }
     }
 
-    public class Link : ILink
+    public class Link : ILink, Serializable
     {
         public string url { get; set; }
         public string innerText { get; set; }
-        // add picture property?
+        [BsonDictionaryOptionsAttribute(DictionaryRepresentation.Dynamic)]
         private Dictionary<string, int> wordCount { get; set; }
 
         public int GetPageRank(HashSet<string> keywords)
         {
             int pageRank = 0;
-            foreach (string keyword in keywords)
+            if (wordCount != null)
             {
-                if (wordCount.ContainsKey(keyword))
-                    pageRank += wordCount[keyword];
+                foreach (string keyword in keywords)
+                {
+                    if (wordCount.ContainsKey(keyword))
+                        pageRank += wordCount[keyword];
+                }
             }
             return pageRank;
         }

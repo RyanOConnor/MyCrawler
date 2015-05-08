@@ -23,10 +23,6 @@ namespace AndroidAppServer
         {
             Database.Instance.Start();
             DataManager.Instance.Start();
-            //IPEndPoint endPoint = new IPEndPoint(IPAddress.Parse("192.168.1.132"), 11000);
-            //CrawlerManager.Instance.AllowCrawlerIP(endPoint);
-            //CrawlerManager.Instance.StartListening(endPoint.Address);
-
         }
     }
 }

@@ -2,21 +2,20 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
+using System.Collections.Concurrent;
 using System.Threading.Tasks;
 using System.Net;
-using System.Net.Sockets;
-using System.Collections.Concurrent;
 using System.Threading;
+using Newtonsoft.Json.Linq;
+using Newtonsoft.Json;
 using MongoDB.Bson;
 
 namespace AndroidAppServer
 {
-    public enum CrawlerStatus { STARTING, WAITING, SENDING_DATA, SHUTTING_DOWN };
-    public class CrawlerManager : SocketServer
+    class CrawlerManager
     {
-        private Dictionary<IPEndPoint, CrawlerNode> crawlerNodes { get; set; }
-        private Dictionary<ObjectId, CrawlerNode> jobSet { get; set; }
-        private HashSet<IPEndPoint> nodeIPAddresses { get; set; }
+        private Dictionary<Uri, CrawlerNode> crawlerNodes = new Dictionary<Uri, CrawlerNode>();
+        private Dictionary<ObjectId, CrawlerNode> jobSet = new Dictionary<ObjectId, CrawlerNode>();
         private static CrawlerManager _instance;
         public static CrawlerManager Instance
         {
@@ -28,235 +27,136 @@ namespace AndroidAppServer
             }
         }
 
-        public CrawlerManager()
+        public void AddCrawlerNode(Uri domain)
         {
-            crawlerNodes = new Dictionary<IPEndPoint, CrawlerNode>();
-            nodeIPAddresses = new HashSet<IPEndPoint>();
-            jobSet = new Dictionary<ObjectId, CrawlerNode>();
-            this.MessageReceived += new EventHandler<MessageEventArgs>(OnMessageReceived);
-        }
-
-        public void AllowCrawlerIP(IPEndPoint endPoint)
-        {
-            lock (nodeIPAddresses)
+            CrawlerNode node;
+            if (!crawlerNodes.ContainsKey(domain))
             {
-                if (!nodeIPAddresses.Contains(endPoint))
-                    nodeIPAddresses.Add(endPoint);
-            }
-        }
-
-        protected override void HandleConnection(object socket)
-        {
-            listenerSignal.Set();
-
-            Socket handler = (Socket)socket;
-
-            if (nodeIPAddresses.Contains(handler.LocalEndPoint))
-            {
-                CrawlerNode node = new CrawlerNode();
-                node.UpdateReceived += new EventHandler<HtmlRecord>(OnUpdateReceived);
-                node.Start(handler);
-                crawlerNodes.Add((IPEndPoint)handler.LocalEndPoint, node);
+                node = new CrawlerNode(domain);
+                crawlerNodes.Add(node.nodeDomain, node);
             }
             else
             {
-                throw new Exception("Invalid IP attempting to connect");
+                node = crawlerNodes[domain];
+                node.KillSendProcess();
             }
-        }
-
-        public void OnMessageReceived(object sender, MessageEventArgs args)
-        {
-
+            node.Start();
         }
 
         public void DistributeWork(HtmlRecord record)
         {
             while (crawlerNodes.Count == 0) ;
-            CrawlerNode node = crawlerNodes.OrderByDescending(x => x.Value.messageQueue.Count).Last().Value;
+            var nodes = crawlerNodes.OrderBy(x => x.Value.messageQueue.Count)
+                                    .OrderBy(y => y.Value.messageQueue
+                                                         .Where(z => z.domain.Host == record.domain.Host)
+                                                         .Count());
+            CrawlerNode node = nodes.ElementAt(0).Value;
             jobSet[record.recordid] = node;
             node.EnqueueHtmlRecord(record);
         }
 
-        public void OnUpdateReceived(object sender, HtmlRecord record)
+        public void RemoveJob(ObjectId recordid)
         {
-            jobSet.Remove(record.recordid);
-        }
-
-        public void GetJobStatus(ObjectId jobId)
-        {
-            StatusRequest statusRequest = new StatusRequest(jobId);
-            jobSet[jobId].EnqueueMessage(statusRequest);
-        }
-    }
-
-    public class CrawlerNode : SocketServer
-    {
-        public BlockingCollection<Message> messageQueue = new BlockingCollection<Message>();
-        public Dictionary<ObjectId, Message> backupQueue = new Dictionary<ObjectId, Message>();
-        public ManualResetEvent allowSend = new ManualResetEvent(false);
-        public event EventHandler<HtmlRecord> UpdateReceived;
-        private event EventHandler<KeyValuePair<ObjectId, JobStatus>> StatusReceived;
-
-        public CrawlerNode()
-        {
-            MessageReceived += new EventHandler<MessageEventArgs>(OnMessageReceived);
-            DataManager.Instance.AddCrawlerEvent(this);
-            ClientConnected += new EventHandler(OnClientConnected);
-            MessageSubmitted += new EventHandler(OnMessageSubmitted);
-            StatusReceived += new EventHandler<KeyValuePair<ObjectId, JobStatus>>(DataManager.Instance.jobSchedule.OnStatusReceived);
-        }
-
-        public void Start(Socket socket)
-        {
-            IPEndPoint localEndPoint = socket.LocalEndPoint as IPEndPoint;
-            StartClient(localEndPoint.Address);
-
-            Thread receive = new Thread(new ParameterizedThreadStart(HandleConnection));
-            receive.Start(socket);
-        }
-
-        public void OnClientConnected(object sender, EventArgs args)
-        {
-            Message readyMessage = new ReadyMessage(ObjectId.Empty);
-            Send(BSON.Serialize<Message>(readyMessage));
-        }
-
-        public void OnMessageReceived(object sender, MessageEventArgs args)
-        {
-            Message response = null;
-            if (args.message is ReadyMessage)
+            if (jobSet.ContainsKey(recordid))
             {
-                ReadyMessage readyMessage = args.message as ReadyMessage;
-                RemoveFromBackup(readyMessage.idReceived);
-
-                if (messageQueue.Count == 0)
-                {
-                    ThreadPool.QueueUserWorkItem(new WaitCallback(WaitSend));
-                }
-                else
-                {
-                    response = messageQueue.Take();
-                }
+                jobSet.Remove(recordid);
             }
-            else if (args.message is RecordMessage)
-            {
-                RecordMessage recordMessage = args.message as RecordMessage;
+        }
 
-                EventHandler<HtmlRecord> updateReceived = UpdateReceived;
-                if (updateReceived != null)
+        public JobStatus CheckCrawlerJobStatus(ObjectId recordid)
+        {
+            if (jobSet.ContainsKey(recordid))
+                return jobSet[recordid].HandleJobStatus(recordid);
+            else
+                return JobStatus.None;
+        }
+
+        private class CrawlerNode
+        {
+            public Uri nodeDomain { get; private set; }
+            public BlockingCollection<HtmlRecord> messageQueue = new BlockingCollection<HtmlRecord>();
+            private Thread sendProcess { get; set; }
+            private const int maxRequestAttempts = 10;
+            private bool processDestroyed = false;
+
+            public CrawlerNode(Uri nodeDomain)
+            {
+                this.nodeDomain = nodeDomain;
+            }
+
+            public void Start()
+            {
+                sendProcess = new Thread(this.Send);
+                sendProcess.Start();
+            }
+
+            public void Send()
+            {
+                RestAPI api = new RestAPI();
+                while (!processDestroyed)
                 {
-                    var delegates = updateReceived.GetInvocationList();
-                    foreach (EventHandler<HtmlRecord> receiver in delegates)
+                    HtmlRecord record = messageQueue.Take();
+                    foreach (HtmlResults results in record.results.Values)
                     {
-                        receiver.BeginInvoke(null, recordMessage.htmlRecord, OnDatabaseUpdated, null);
+                        results.links = null;
+                    }
+                    byte[] recordString = record.ToBson<HtmlRecord>();
+                    try
+                    {
+                        JObject obj = api.EnqueueJob(recordString);
+                        bool messageReceived = obj.GetValue("Successful").Value<bool>();
+                        if (messageReceived)
+                        {
+                            ServerResponse response = api.ParseResponse(obj);
+                            if (response != ServerResponse.Success)
+                            {
+                                messageQueue.Add(record);
+                            }
+                            else
+                                System.Diagnostics.Debug.Print("[" + DateTime.Now.ToString() + "] Sent: " + 
+                                                                record.domain.AbsoluteUri);
+                        }
+                        else
+                        {
+                            messageQueue.Add(record);
+                        }
+                    }
+                    catch (WebException ex)
+                    {
+                        System.Diagnostics.Debug.Print(ex.ToString());
+                        messageQueue.Add(record);
                     }
                 }
-
-                response = new ReadyMessage(recordMessage.id);
             }
-            else if (args.message is StatusReport)
-            {
-                StatusReport report = args.message as StatusReport;
 
-                EventHandler<KeyValuePair<ObjectId, JobStatus>> statusReceived = StatusReceived;
-                if (statusReceived != null)
+            public void KillSendProcess()
+            {
+                processDestroyed = true;
+                sendProcess.Join();
+                sendProcess = new Thread(this.Send);
+                sendProcess.Start();
+            }
+
+            public JobStatus HandleJobStatus(ObjectId recordid)
+            {
+                RestAPI api = new RestAPI();
+                string recordIdStr = recordid.ToString();
+                JObject obj = api.StatusRequest(recordIdStr);
+                bool messageReceived = obj.GetValue("Successful").Value<bool>();
+                int attempts = 0;
+                while ( ( !messageReceived ) && ( attempts < maxRequestAttempts) )
                 {
-                    statusReceived.Invoke(null, report.statusReport);
+                    obj = api.StatusRequest(recordIdStr);
+                    messageReceived = obj.GetValue("Successful").Value<bool>();
+                    attempts++;
                 }
-
-                response = new ReadyMessage(report.id);
-            }
-            else if (args.message is DestroyedBuffer)
-            {
-                response = new ResendMessage();
-            }
-            else if (args.message is ResendMessage)
-            {
-                response = RetrieveFromBackup();
+                Tuple<ServerResponse, JobStatus> response = api.ParseStatusResponse(obj);
+                return response.Item2;
             }
 
-            if (response != null)
+            public void EnqueueHtmlRecord(HtmlRecord record)
             {
-                Send(response);
-            }
-        }
-
-        public void OnDatabaseUpdated(IAsyncResult result)
-        {
-            var async = (System.Runtime.Remoting.Messaging.AsyncResult)result;
-            var invokedMethod = (EventHandler<HtmlRecord>)async.AsyncDelegate;
-            invokedMethod.EndInvoke(result);
-        }
-
-        public void Send(Message message)
-        {
-            byte[] bson = BSON.Serialize<Message>(message);
-            Send(bson);
-        }
-
-        public void WaitSend(object state)
-        {
-            allowSend.Reset();
-
-            if (messageQueue.Count == 0)
-                allowSend.WaitOne();
-
-            Message message = messageQueue.Take();
-            byte[] bson = BSON.Serialize<Message>(message);
-            Send(bson);
-        }
-
-        public void OnMessageSubmitted(object sender, EventArgs args)
-        {
-
-        }
-
-        public void AddToBackup(Message message)
-        {
-            lock (backupQueue)
-            {
-                if (!backupQueue.ContainsKey(message.id))
-                {
-                    backupQueue.Add(message.id, message);
-                }
-            }
-        }
-
-        public Message RetrieveFromBackup()
-        {
-            lock (backupQueue)
-            {
-                if (backupQueue.Count != 0)
-                    return backupQueue.Values.First();
-                else
-                    return null;
-            }
-        }
-
-        public void RemoveFromBackup(ObjectId messageId)
-        {
-            lock (backupQueue)
-            {
-                backupQueue.Remove(messageId);
-            }
-        }
-
-        public void EnqueueHtmlRecord(HtmlRecord record)
-        {
-            lock (messageQueue)
-            {
-                RecordMessage message = new RecordMessage(record);
-                messageQueue.Add(message);
-                allowSend.Set();
-            }
-        }
-
-        public void EnqueueMessage(Message message)
-        {
-            lock (messageQueue)
-            {
-                messageQueue.Add(message);
-                allowSend.Set();
+                messageQueue.Add(record);
             }
         }
     }

@@ -7,28 +7,30 @@ using MongoDB.Bson;
 using MongoDB.Driver;
 using MongoDB.Bson.Serialization.Attributes;
 using MongoDB.Bson.Serialization.Options;
+using System.Diagnostics;
 
 namespace AndroidAppServer
 {
     public class Password : Serializable
     {
-        public byte[] passwordHash;
-        public byte[] passwordSalt;
+        public byte[] hash;
+        public byte[] salt;
 
         public Password(byte[] hash, byte[] salt)
         {
-            passwordHash = hash;
-            passwordSalt = salt;
+            this.hash = hash;
+            this.salt = salt;
         }
     }
 
-    public class LinkFeedParams
+    public class LinkFeedParams : Serializable
     {
         public ObjectId recordid { get; private set; }
         public ObjectId resultsid { get; private set; }
         public string url { get; private set; }
         public string htmlTags { get; private set; }
-        public HashSet<string> keywords { get; set; }
+        public HashSet<string> keywords { get; private set; }
+        private DateTime lastUpdated { get; set; }
 
         public LinkFeedParams(ObjectId recordid, ObjectId resultsid, string url,
                                 string htmlTags, HashSet<string> keywords)
@@ -38,6 +40,16 @@ namespace AndroidAppServer
             this.url = url;
             this.htmlTags = htmlTags;
             this.keywords = keywords;
+        }
+
+        public void ReplaceKeywords(HashSet<string> newKeywords)
+        {
+            keywords = newKeywords;
+        }
+
+        public void UpdateTimeStamp()
+        {
+            lastUpdated = DateTime.UtcNow;
         }
     }
 
@@ -87,20 +99,27 @@ namespace AndroidAppServer
             {
                 IHtmlRecord record = DataManager.Instance.GetHtmlRecord(pair.Value.recordid);
                 IHtmlResults results = record.GetHtmlResults(pair.Value.resultsid);
-                linkFeeds.Add(new Tuple<LinkFeedParams, List<UserLink>>(pair.Value,
-                                        results.GetLinkFeedResults(pair.Value.keywords)));
+                List<UserLink> userLinks;
+                if (pair.Value.keywords != null)
+                    userLinks = results.GetLinkFeedResults(pair.Value.keywords);
+                else
+                    userLinks = results.GetLinkFeedResults(new HashSet<string>());
+
+                linkFeeds.Add(new Tuple<LinkFeedParams, List<UserLink>>(pair.Value, userLinks));
+                pair.Value.UpdateTimeStamp();
             }
             return linkFeeds;
         }
 
-        public LinkFeedParams ModifySubscription(ObjectId recordid, ObjectId resultsid, string htmlTags, HashSet<string> keywords)
+        public LinkFeedParams ModifySubscription(ObjectId recordid, ObjectId resultsid, 
+                                                 string htmlTags, HashSet<string> keywords)
         {
             LinkFeedParams parameters = null;
             if (links.ContainsKey(resultsid))
             {
                 if (links[resultsid].htmlTags == htmlTags)
                 {
-                    links[resultsid].keywords = keywords;
+                    links[resultsid].ReplaceKeywords(keywords);
                     parameters = links[resultsid];
                 }
                 else
@@ -108,7 +127,7 @@ namespace AndroidAppServer
                     IHtmlRecord record = DataManager.Instance.GetHtmlRecord(recordid);
                     record.RemoveResults(resultsid, id);
                     IHtmlResults results = record.AddResults(htmlTags, id);
-                    parameters = new LinkFeedParams(record.recordid, results.resultsid,
+                    parameters = new LinkFeedParams(record.recordid, results.resultsid, 
                                                     record.domain.AbsoluteUri, results.htmlTags, keywords);
                     DataManager.Instance.SaveHtmlRecord(record);
                     links.Add(results.resultsid, parameters);
@@ -138,18 +157,28 @@ namespace AndroidAppServer
             }
         }
 
-        public bool ChangePassword(Password newPassword)
+        public bool ChangePassword(byte[] newPassword)
         {
-            if (!previousPasswords.Any(pass => pass.passwordHash == newPassword.passwordHash))
-            {
-                previousPasswords.Add(this.password);
-                password = newPassword;
-                return true;
-            }
-            else
+            byte[] saltedHash = Authorize.GenerateSaltedHash(newPassword, password.salt);
+            if(Authorize.IsValidHash(saltedHash, password.hash))
             {
                 return false;
             }
+            foreach (Password prevPass in previousPasswords)
+            {
+                saltedHash = Authorize.GenerateSaltedHash(newPassword, prevPass.salt);
+                if (Authorize.IsValidHash(saltedHash, prevPass.hash))
+                {
+                    return false;
+                }
+            }
+            byte[] salt = Authorize.GenerateSalt();
+            saltedHash = Authorize.GenerateSaltedHash(newPassword, salt);
+            Password newPass = new Password(saltedHash, salt);
+            previousPasswords.Add(this.password);
+            this.password = newPass;
+
+            return true;
         }
     }
 }

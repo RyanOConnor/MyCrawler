@@ -19,19 +19,11 @@ namespace AndroidAppServer
         {
             try
             {
-                /*using (var buffer = new BsonBuffer())
-                {
-                    using (var writer = BsonWriter.Create(buffer))
-                    {
-                        BsonSerializer.Serialize(writer, typeof(T), obj);
-                    }
-                    return buffer.ToByteArray();
-                }*/
                 return obj.ToBson<T>();
             }
             catch (Exception ex)
             {
-                Console.WriteLine(ex.ToString());
+                System.Diagnostics.Debug.Print(ex.ToString());
                 throw ex;
             }
         }
@@ -46,7 +38,7 @@ namespace AndroidAppServer
             }
             catch (Exception ex)
             {
-                Console.WriteLine(ex.ToString());
+                System.Diagnostics.Debug.Print(ex.ToString());
                 throw ex;
             }
         }
@@ -54,7 +46,7 @@ namespace AndroidAppServer
 
     public static class JSON
     {
-        public static string Serialize<T>(this T obj) where T : Serializable
+        public static string Serialize<T>(this T obj)
         {
             try
             {
@@ -72,7 +64,7 @@ namespace AndroidAppServer
             }
         }
 
-        public static T Deserialize<T>(string json) where T : Serializable
+        public static T Deserialize<T>(string json)
         {
             try
             {

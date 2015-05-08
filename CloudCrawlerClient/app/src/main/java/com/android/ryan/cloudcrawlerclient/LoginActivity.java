@@ -21,13 +21,15 @@ import org.json.JSONObject;
 
 import java.util.List;
 
-
+/**
+ * Created by Ryan on 5/3/2015.
+ */
 public class LoginActivity extends AccountAuthenticatorActivity {
 
     public static final String AUTHORITY = "com.android.ryan.cloudcrawlerclient.provider";
     public static final String ACCOUNT_TYPE = "com.android.ryan.cloudcrawlerclient.account";
     public static final String CONTENT_AUTHORITY = "com.android.ryan.cloudcrawlerclient.provider";
-    public static final long SYNC_FREQUENCY = 60*5;
+    public static final long SYNC_FREQUENCY = 60*4;
 
     public static Account mAccount;
 
@@ -53,38 +55,22 @@ public class LoginActivity extends AccountAuthenticatorActivity {
         btnLogin.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                //  -------ONLY FOR DEBUGGING PURPOSES------
-                if (enteredUsername.getText().toString().isEmpty()) {
-                    setLoggedInState("admin", "");
-                    Intent intent = new Intent(LoginActivity.this, MainActivity.class);
-                    startActivity(intent);
-                    //  -------ONLY FOR DEBUGGING PURPOSES------
-                } else {
-                    String username = enteredUsername.getText().toString();
-                    String password = enteredPassword.getText().toString();
-                    new AsyncLogin().execute(username, password);
-                }
+                String username = enteredUsername.getText().toString();
+                String password = enteredPassword.getText().toString();
+                new AsyncLogin().execute(username, password);
             }
         });
 
         btnCreateAccount.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                //  -------ONLY FOR DEBUGGING PURPOSES------
-                if (enteredUsername.getText().toString().isEmpty()) {
-                    setLoggedInState("admin", "");
-                    Intent intent = new Intent(LoginActivity.this, MainActivity.class);
-                    startActivity(intent);
-                    //  -------ONLY FOR DEBUGGING PURPOSES------
+                String username = enteredUsername.getText().toString();
+                String password = enteredPassword.getText().toString();
+                if (username.length() >= 8) {
+                    UserDetailsTable userDetails = new UserDetailsTable(username, password);
+                    new AsyncCreateUser().execute(userDetails);
                 } else {
-                    String username = enteredUsername.getText().toString();
-                    String password = enteredPassword.getText().toString();
-                    if (username.length() >= 8) {
-                        UserDetailsTable userDetails = new UserDetailsTable(username, password);
-                        new AsyncCreateUser().execute(userDetails);
-                    } else {
-                        Toast.makeText(context, "Username must have 8 or more characters", Toast.LENGTH_LONG).show();
-                    }
+                    Toast.makeText(context, "Username must have 8 or more characters", Toast.LENGTH_LONG).show();
                 }
             }
         });
@@ -104,18 +90,12 @@ public class LoginActivity extends AccountAuthenticatorActivity {
 
     @Override
     public boolean onCreateOptionsMenu(Menu menu) {
-        // Inflate the menu; this adds items to the action bar if it is present.
         getMenuInflater().inflate(R.menu.menu_login, menu);
         return true;
     }
 
     @Override
     public boolean onOptionsItemSelected(MenuItem item) {
-        // Handle action bar item clicks here. The action bar will
-        // automatically handle clicks on the Home/Up button, so long
-        // as you specify a parent activity in AndroidManifest.xml.
-        int id = item.getItemId();
-
         return super.onOptionsItemSelected(item);
     }
 
@@ -181,6 +161,7 @@ public class LoginActivity extends AccountAuthenticatorActivity {
                 response = parser.parseServerPair(obj);
 
             } catch (Exception ex) {
+                ex.printStackTrace();
                 Log.d("AsyncCreateUser", ex.getMessage());
             }
             return response;

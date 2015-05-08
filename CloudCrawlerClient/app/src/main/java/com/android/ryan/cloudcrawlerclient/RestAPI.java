@@ -20,17 +20,18 @@ import java.util.Date;
 import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
-
+/**
+ * Created by Ryan on 5/3/2015.
+ */
 public class RestAPI {
 
     public enum ServerResponse {
-        Success, ServerError, InvalidPasswordType, InvalidPassword, UsernameAlreadyExists, LinkAlreadyExists,
-        DummyResponse
+        Success, ServerError, InvalidPasswordType, InvalidPassword, UsernameAlreadyExists, LinkAlreadyExists
     }
 
+    //private final String urlString = "http://10.0.2.2/localhost:55957/Handler.ashx";
     private final String urlString = "http://67.175.150.75/AndroidWebApi2/Handler.ashx";
-    //private final String urlString = "http://10.0.2.2/AndroidWebApi2/Handler.ashx";
-    //private final String urlString = "http://10.0.2.2/TestApi1/Handler.ashx";
+    //private final String urlString = "http://192.168.1.121:55957/Handler.ashx";
 
     private static String convertStreamToUTF8String(InputStream stream) throws IOException {
         String result = "";
@@ -50,7 +51,6 @@ public class RestAPI {
         }
         return result;
     }
-
 
     private String load(String contents) throws IOException {
         URL url = new URL(urlString);
@@ -111,7 +111,7 @@ public class RestAPI {
         JSONObject result = null;
         JSONObject o = new JSONObject();
         JSONObject p = new JSONObject();
-        o.put("interface","RestAPI");
+        o.put("interface","Android_Client_RestAPI");
         o.put("method", "UserAuthorization");
         p.put("username",mapObject(username));
         p.put("password",mapObject(password));
@@ -126,7 +126,7 @@ public class RestAPI {
         JSONObject result = null;
         JSONObject o = new JSONObject();
         JSONObject p = new JSONObject();
-        o.put("interface","RestAPI");
+        o.put("interface","Android_Client_RestAPI");
         o.put("method", "CreateNewAccount");
         p.put("username",mapObject(username));
         p.put("password",mapObject(password));
@@ -141,7 +141,7 @@ public class RestAPI {
         JSONObject result = null;
         JSONObject o = new JSONObject();
         JSONObject p = new JSONObject();
-        o.put("interface","RestAPI");
+        o.put("interface","Android_Client_RestAPI");
         o.put("method", "AddLinkFeed");
         p.put("userid",mapObject(userid));
         p.put("url",mapObject(url));
@@ -158,7 +158,7 @@ public class RestAPI {
         JSONObject result = null;
         JSONObject o = new JSONObject();
         JSONObject p = new JSONObject();
-        o.put("interface","RestAPI");
+        o.put("interface","Android_Client_RestAPI");
         o.put("method", "ModifyFeed");
         p.put("userid",mapObject(userid));
         p.put("recordid",mapObject(recordid));
@@ -176,7 +176,7 @@ public class RestAPI {
         JSONObject result = null;
         JSONObject o = new JSONObject();
         JSONObject p = new JSONObject();
-        o.put("interface","RestAPI");
+        o.put("interface","Android_Client_RestAPI");
         o.put("method", "RemoveFeed");
         p.put("userid",mapObject(userid));
         p.put("resultsid",mapObject(resultsid));
@@ -187,12 +187,14 @@ public class RestAPI {
         return result;
     }
 
-    public JSONObject ChangePassword(String newPassword) throws Exception {
+    public JSONObject ChangePassword(String userid,String previousPassword,String newPassword) throws Exception {
         JSONObject result = null;
         JSONObject o = new JSONObject();
         JSONObject p = new JSONObject();
-        o.put("interface","RestAPI");
+        o.put("interface","Android_Client_RestAPI");
         o.put("method", "ChangePassword");
+        p.put("userid",mapObject(userid));
+        p.put("previousPassword",mapObject(previousPassword));
         p.put("newPassword",mapObject(newPassword));
         o.put("parameters", p);
         String s = o.toString();
@@ -205,7 +207,7 @@ public class RestAPI {
         JSONObject result = null;
         JSONObject o = new JSONObject();
         JSONObject p = new JSONObject();
-        o.put("interface","RestAPI");
+        o.put("interface","Android_Client_RestAPI");
         o.put("method", "DeleteUser");
         p.put("userid",mapObject(userid));
         o.put("parameters", p);
@@ -219,7 +221,7 @@ public class RestAPI {
         JSONObject result = null;
         JSONObject o = new JSONObject();
         JSONObject p = new JSONObject();
-        o.put("interface","RestAPI");
+        o.put("interface","Android_Client_RestAPI");
         o.put("method", "RetrieveUpdates");
         p.put("userid",mapObject(userid));
         o.put("parameters", p);

@@ -14,11 +14,10 @@ namespace AndroidAppServer
     {
         public Handler()
         {
-            this.service.Name = "AndroidWebApi";
+            this.service.Name = "AndroidClientApi";
             this.service.Description = "JSON API for CloudCrawler Android Client";
-            InterfaceConfiguration IConfig = new InterfaceConfiguration("RestAPI", typeof(IServiceApi), typeof(ServiceApi));
+            InterfaceConfiguration IConfig = new InterfaceConfiguration("Android_Client_RestAPI", typeof(IServiceApi), typeof(ServiceApi));
             this.service.Interfaces.Add(IConfig);
         }
-        
     }
 }

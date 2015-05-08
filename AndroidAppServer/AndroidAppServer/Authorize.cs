@@ -16,6 +16,7 @@ namespace AndroidAppServer
         {
             get { lock (_rng) { return _rng; } }
         }
+        private const int MinimumCharacters = 8;
         private const int SaltSize = 24;
         private const int HashSize = 24;
 
@@ -38,11 +39,6 @@ namespace AndroidAppServer
             return algorithm.ComputeHash(algorithmInput);
         }
 
-        public static string GetSessionToken()
-        {
-            return ObjectId.GenerateNewId().ToString();
-        }
-
         public static bool IsValidHash(byte[] inputPassword, byte[] storedPassword)
         {
             if (inputPassword.Length != storedPassword.Length)
@@ -63,8 +59,10 @@ namespace AndroidAppServer
 
         public static bool PassesGuidelines(string password)
         {
-            // Set up password requirements
-            return true;
+            if (password.Length >= MinimumCharacters)
+                return true;
+            else
+                return false;
         }
     }
 }

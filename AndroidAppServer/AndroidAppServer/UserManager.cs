@@ -29,15 +29,17 @@ namespace AndroidAppServer
             User user = Database.Instance.userCollection.FindOneAs<User>(Query.EQ("username", username));
             if (user != null)
             {
-                byte[] saltedHash = Authorize.GenerateSaltedHash(enteredPassword, user.password.passwordSalt);
+                byte[] saltedHash = Authorize.GenerateSaltedHash(enteredPassword, user.password.salt);
 
-                if (Authorize.IsValidHash(saltedHash, user.password.passwordHash))
+                if (Authorize.IsValidHash(saltedHash, user.password.hash))
                     return user.id;
                 else
                     return ObjectId.Empty;
             }
             else
+            {
                 return ObjectId.Empty;
+            }
         }
 
         public void SaveUser(User user)
@@ -60,17 +62,9 @@ namespace AndroidAppServer
 
         public User FindUserByID(ObjectId userid)
         {
-            try
-            {
-                IMongoQuery query = Query.EQ("_id", userid);
-                User user = Database.Instance.userCollection.FindOne(query);
-                return user;
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine(ex.ToString());
-                throw ex;
-            }
+            IMongoQuery query = Query.EQ("_id", userid);
+            User user = Database.Instance.userCollection.FindOne(query);
+            return user;
         }
     }
 }

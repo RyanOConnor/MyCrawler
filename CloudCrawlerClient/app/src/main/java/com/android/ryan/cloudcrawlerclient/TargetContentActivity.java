@@ -33,6 +33,9 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.util.HashSet;
 import java.util.List;
+/**
+ * Created by Ryan on 4/14/2015.
+ */
 
 public class TargetContentActivity extends ActionBarActivity {
 
@@ -87,7 +90,6 @@ public class TargetContentActivity extends ActionBarActivity {
                 }
             }
         }
-
         webView.loadUrl(url);
     }
 
@@ -155,7 +157,7 @@ public class TargetContentActivity extends ActionBarActivity {
 
         public void displayKeywordDialog(final String path, final String host, final List<Link> results){
             AlertDialog.Builder dialogBuilder = new AlertDialog.Builder(browserContext);
-            dialogBuilder.setCancelable(false);
+            dialogBuilder.setCancelable(true);
             dialogBuilder.setTitle("Any keywords of interest for " + host + "?");
             dialogBuilder.setMessage("We'll rank your results according to your specified interests");
             dialogBuilder.setNegativeButton("Yes", new DialogInterface.OnClickListener() {
@@ -168,7 +170,7 @@ public class TargetContentActivity extends ActionBarActivity {
                     final EditText userKeyword = (EditText) view.findViewById(R.id.user_keywords);
 
                     keywordBuilder.setView(view);
-                    keywordBuilder.setCancelable(false);
+                    keywordBuilder.setCancelable(true);
                     keywordBuilder.setPositiveButton("Done", new DialogInterface.OnClickListener() {
                         @Override
                         public void onClick(DialogInterface dialog, int id) {
@@ -177,10 +179,9 @@ public class TargetContentActivity extends ActionBarActivity {
                                 new AsyncModifyFeed().execute(linkFeed, linkFeedResults);
                             else
                                 new AsyncCreateFeed().execute(linkFeed);
-                            //finish();
                         }
                     });
-                    keywordBuilder.setNegativeButton("OK", new DialogInterface.OnClickListener() {
+                    keywordBuilder.setNegativeButton("Ok", new DialogInterface.OnClickListener() {
                         @Override
                         public void onClick(DialogInterface dialog, int id) {
                         }
@@ -210,7 +211,6 @@ public class TargetContentActivity extends ActionBarActivity {
                         new AsyncModifyFeed().execute(linkFeed, linkFeedResults);
                     else
                         new AsyncCreateFeed().execute(linkFeed);
-                    //finish();
                 }
             });
             dialogBuilder.create();
@@ -221,7 +221,12 @@ public class TargetContentActivity extends ActionBarActivity {
             new AlertDialog.Builder(browserContext)
                     .setTitle("Feed Already Exists")
                     .setMessage("It seems you already have a feed for " + url)
-                    .setPositiveButton(android.R.string.ok, null)
+                    .setPositiveButton(android.R.string.ok, new DialogInterface.OnClickListener(){
+                        @Override
+                        public void onClick(DialogInterface dialog, int which){
+                            startActivity(new Intent(browserContext, MainActivity.class));
+                        }
+                    })
                     .setCancelable(false)
                     .create()
                     .show();
@@ -235,10 +240,10 @@ public class TargetContentActivity extends ActionBarActivity {
         @Override
         protected Pair<RestAPI.ServerResponse, LinkFeed> doInBackground(LinkFeed... params){
             feed = params[0];
+            String userid = AccessState.instance().getUserID(getApplicationContext());
             RestAPI api = new RestAPI();
             Pair<RestAPI.ServerResponse, LinkFeed> response = null;
             try{
-                String userid = AccessState.instance().getUserID(getApplicationContext());
                 JSONObject jsonObj = api.AddLinkFeed(userid, feed.url, feed.htmlTags, feed.keywords);
                 JSONParser parser = new JSONParser();
                 response = parser.parseAddFeedResponse(jsonObj);
