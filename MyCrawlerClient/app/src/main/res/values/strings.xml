@@ -1,0 +1,23 @@
+<resources>
+    <string name="app_name">FeedClient</string>
+
+    <string name="title_Add">Add Feed</string>
+    <string name="title_Feeds">Feeds</string>
+    <string name="title_Account">Account</string>
+    <string name="title_Logout">Logout</string>
+
+    <string name="navigation_drawer_open">Open navigation drawer</string>
+    <string name="navigation_drawer_close">Close navigation drawer</string>
+
+    <string name="login">Login</string>
+    <string name="create_user_account">Create Account</string>
+    <string name="username">Username :</string>
+    <string name="password">Password :</string>
+
+    <string name="title_activity_login">LoginActivity</string>
+    <string name="title_activity_browser">BrowserActivity</string>
+
+    <string name="action_begin_select">Select</string>
+
+    <string name="hello_world">Hello world!</string>
+</resources>
