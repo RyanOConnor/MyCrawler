@@ -22,6 +22,7 @@ namespace WebCrawlerNode
 
     class WebCrawler
     {
+        private Thread send { get; set; }
         public CrawlerStatus status { get; private set; }
         private Dictionary<ObjectId, HtmlRecord> jobSet { get; set; }
         private Dictionary<string, Domain> domainDictionary { get; set; }
@@ -57,12 +58,15 @@ namespace WebCrawlerNode
 
         public void Start(Uri appServerUri)
         {
-            RestAPI api = new RestAPI();
-            JObject obj = api.Authenticate("http://localhost:51748/Handler.ashx");
-            string cert = api.ParseAuthenticate(obj);
+            if (send == null)
+            {
+                RestAPI api = new RestAPI();
+                JObject obj = api.Authenticate("http://localhost:51748/Handler.ashx");
+                string cert = api.ParseAuthenticate(obj);
 
-            Thread send = new Thread(Send);
-            send.Start();
+                send = new Thread(Send);
+                send.Start();
+            }
         }
 
         public void Send()

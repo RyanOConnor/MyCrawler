@@ -28,6 +28,7 @@ namespace WebCrawlerNode
 
             Uri appServerUri = new Uri("http://localhost:80/AndroidWebApi2/Handler.ashx");
             WebCrawler.Instance.Start(appServerUri);
+            DebugPageParser.Start();
         }
     }
 }

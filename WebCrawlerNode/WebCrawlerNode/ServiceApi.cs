@@ -8,7 +8,6 @@ using MongoDB.Bson;
 
 namespace WebCrawlerNode
 {
-
     public interface IServiceApi
     {
         ServerResponse EnqueueJob(byte[] zippedBytes);

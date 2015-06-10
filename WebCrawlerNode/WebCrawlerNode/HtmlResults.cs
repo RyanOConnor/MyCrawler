@@ -40,7 +40,9 @@ namespace WebCrawlerNode
                 HtmlDocument htmlDoc = new HtmlDocument();
                 htmlDoc.LoadHtml(html);
 
-                var hrefs = htmlDoc.DocumentNode.QuerySelectorAll(htmlTags).ToDictionary(k => FixUrl(k.Attributes["href"].Value, domain));
+                var hrefs = htmlDoc.DocumentNode.QuerySelectorAll(htmlTags)
+                                                .ToDictionary(k => FixUrl(k.Attributes["href"]
+                                                                           .Value, domain));
                 HashSet<string> set = new HashSet<string>();
                 
                 foreach (string href in hrefs.Keys)
@@ -106,7 +108,9 @@ namespace WebCrawlerNode
 
         public void ProcessKeywordScores()
         {
-            foreach (ChildPage page in childPages)
+            System.Diagnostics.Stopwatch sw = new System.Diagnostics.Stopwatch();
+            sw.Start();
+            Parallel.ForEach(childPages, page =>
             {
                 if (page.htmlDoc != null)
                 {
@@ -114,20 +118,40 @@ namespace WebCrawlerNode
                     MatchCollection matches = Regex.Matches(innerText, @"\b[\w']*\b");
                     var words = from m in matches.Cast<Match>()
                                 where !string.IsNullOrEmpty(m.Value)
+                                where m.Length > 2
+                                where m.Value.IndexOfAny("0123456789<>!/".ToCharArray()) == -1
                                 select m.Value;
 
                     Dictionary<string, int> wordCount = new Dictionary<string, int>();
-                    foreach (string word in words)
+                    Parallel.ForEach(words, word =>
                     {
-                        if(innerText.Contains(word))
+                        if (innerText.Contains(word))
                         {
-                            wordCount[word] = Regex.Matches(innerText, word).Count;
+                            int numOccurrances = Regex.Matches(innerText, word).Count;
+                            lock (wordCount)
+                            {
+                                wordCount[word] = numOccurrances;
+                            }
                         }
-                    }
+                    });
 
                     links[page.domain.OriginalString].AddWordCount(wordCount);
                 }
+            });
+            sw.Stop();
+            System.Diagnostics.Debug.Print("[ProcessKeywordScores]: " + sw.Elapsed.ToString());
+        }
+
+        public int GetSubstringOccurrences(string fullString, string subString)
+        {
+            int count = 0;
+            int i = 0;
+            while ((i = fullString.IndexOf(subString, i)) != -1)
+            {
+                i += subString.Length;
+                count++;
             }
+            return count;
         }
     }
 

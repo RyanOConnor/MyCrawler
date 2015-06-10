@@ -90,7 +90,7 @@ namespace WebCrawlerNode
         {
             HttpWebRequest request = (HttpWebRequest)HttpWebRequest.Create(domain.AbsoluteUri);
             request.Method = WebRequestMethods.Http.Get;
-            request.UserAgent = "Mozilla/5.0 (compatible; MSIE 9.0; Windows NT 6.1; Trident/5.0)";
+            request.UserAgent = "Mozilla/5.0 (Linux; U; Android 4.4.2; en-gb; HTC_One Build/KOT49H) AppleWebKit/534.30 (KHTML, like Gecko) Version/4.0 Mobile Safari/534.30";
             request.Headers.Add(HttpRequestHeader.AcceptEncoding, "gzip,deflate");
             request.ProtocolVersion = HttpVersion.Version10;
             request.ServicePoint.ConnectionLeaseTimeout = 5000;
